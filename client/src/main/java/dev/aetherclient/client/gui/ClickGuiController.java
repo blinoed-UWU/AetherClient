@@ -2194,6 +2194,16 @@ public final class ClickGuiController {
         if (m == moduleManager.nameProtect) return IconType.USER;
         if (m == moduleManager.hpCounter) return IconType.POTION;
         if (m == moduleManager.swingAnimation) return IconType.SPARKLES;
+        if (m == moduleManager.chinaHat) return IconType.SPARKLES;
+        if (m == moduleManager.pearlPredict) return IconType.TARGET;
+        if (m == moduleManager.tripleSwap) return IconType.COMBAT;
+        if (m == moduleManager.autoTool) return IconType.SPARKLES;
+        if (m == moduleManager.chestStealer) return IconType.POTION;
+        if (m == moduleManager.invArranger) return IconType.SHIELD;
+        if (m == moduleManager.maceHelper) return IconType.COMBAT;
+        if (m == moduleManager.autoTpAccept) return IconType.USER;
+        if (m == moduleManager.itemScroller) return IconType.SPARKLES;
+        if (m == moduleManager.unHook) return IconType.SHIELD;
         return iconForCategory(m.getCategory());
     }
 

@@ -25,6 +25,18 @@ public final class SwingAnimationModule extends Module {
     public final BooleanSetting ignoreMining = addSetting(
             new BooleanSetting("ignore_mining", "Не менять при копании", true).withEn("Ignore Mining")
     );
+    public final BooleanSetting onlyAttacking = addSetting(
+            new BooleanSetting("only_attacking", "Только при ударе по существу", false).withEn("Only Attacking")
+    );
+    public final BooleanSetting noEquipReset = addSetting(
+            new BooleanSetting("no_equip_reset", "Мгновенная смена предметов", true).withEn("No Equip Reset")
+    );
+    public final BooleanSetting smoothReturn = addSetting(
+            new BooleanSetting("smooth_return", "Плавный возврат руки", true).withEn("Smooth Return")
+    );
+    public final BooleanSetting offhandSwing = addSetting(
+            new BooleanSetting("offhand_swing", "Анимация левой руки", false).withEn("Offhand Swing")
+    );
 
     public SwingAnimationModule() {
         super("swing_anim", "Анимация удара", "Пресеты взмаха из топ-клиентов (Chop, Twist, Swipe, Power, Feast, Smooth, 1.7)", Category.VISUAL);

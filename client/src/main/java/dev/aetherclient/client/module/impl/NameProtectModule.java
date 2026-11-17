@@ -15,10 +15,12 @@ public final class NameProtectModule extends Module {
     public final BooleanSetting maskInTab = addSetting(new BooleanSetting("mask_tab", "В табе", true).withEn("In Tab"));
     public final BooleanSetting maskInNametag = addSetting(new BooleanSetting("mask_nametag", "В именах", true).withEn("In Nametags"));
     public final BooleanSetting maskInTargetHud = addSetting(new BooleanSetting("mask_targethud", "В Target HUD", true).withEn("In Target HUD"));
+    public final BooleanSetting maskInChat = addSetting(new BooleanSetting("mask_chat", "В чате", true).withEn("In Chat"));
+    public final BooleanSetting maskOthers = addSetting(new BooleanSetting("mask_others", "Скрывать чужие ники (Режим стримера)", false).withEn("Mask Other Players"));
 
     public NameProtectModule() {
-        super("name_protect", "Скрыть ник", "Заменяет ваш никнейм на выбранный псевдоним во всех элементах интерфейса", Category.CLIENT);
-        setEn("Name Protect", "Masks your username with a chosen alias across widgets, chat, tab and scoreboard");
+        super("name_protect", "Скрыть ник", "Заменяет ваш никнейм и ники игроков на выбранный псевдоним во всех элементах интерфейса (чат, таб, скорборд, ESP)", Category.CLIENT);
+        setEn("Name Protect", "Masks your username and opponents' names across widgets, chat, tab, scoreboard and ESP");
     }
 
     public String mask(String rawName) {

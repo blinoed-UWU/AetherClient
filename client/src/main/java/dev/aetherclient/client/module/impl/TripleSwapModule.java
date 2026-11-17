@@ -28,18 +28,22 @@ import java.util.List;
  * Prioritizes hotbar slots for 0-flag instant swap, with stop-sprint inventory fallback.
  */
 public final class TripleSwapModule extends Module {
-    public final KeybindSetting swapKey = new KeybindSetting("key", "Клавиша меню", GLFW.GLFW_KEY_R);
+    public static final String[] ITEM_CHOICES = {
+            "Талисман", "Шар / Сфера", "Тотем", "Жемчуг", "Золотое яблоко",
+            "Чар. яблоко", "Щит", "Булава", "Ветровой заряд", "Зелье"
+    };
+
+    public final KeybindSetting swapKey = new KeybindSetting("key", "Клавиша меню", GLFW.GLFW_KEY_R).withEn("Menu Key");
     public final ModeSetting targetHand = new ModeSetting("hand", "Куда свапать", "Левая рука (Offhand)",
-            "Левая рука (Offhand)", "Основная рука (Hotbar)");
-    public final ModeSetting item1 = new ModeSetting("item1", "Сектор 1 (Верх)", "Талисман",
-            "Талисман", "Шар / Сфера", "Тотем", "Жемчуг", "Золотое яблоко");
-    public final ModeSetting item2 = new ModeSetting("item2", "Сектор 2 (Справа)", "Шар / Сфера",
-            "Талисман", "Шар / Сфера", "Тотем", "Жемчуг", "Золотое яблоко");
-    public final ModeSetting item3 = new ModeSetting("item3", "Сектор 3 (Слева)", "Тотем",
-            "Талисман", "Шар / Сфера", "Тотем", "Жемчуг", "Золотое яблоко");
-    public final BooleanSetting showNotifications = new BooleanSetting("notify", "Уведомление в чат/тост", true);
-    public final BooleanSetting playSound = new BooleanSetting("sound", "Звуковой эффект", true);
-    public final NumberSetting radius = new NumberSetting("radius", "Радиус меню", 110.0, 70.0, 180.0, 5.0);
+            "Левая рука (Offhand)", "Основная рука (Hotbar)").withEn("Target Hand");
+    public final ModeSetting item1 = new ModeSetting("item1", "Сектор 1 (Верх)", "Талисман", ITEM_CHOICES).withEn("Sector 1 (Top)");
+    public final ModeSetting item2 = new ModeSetting("item2", "Сектор 2 (Справа)", "Шар / Сфера", ITEM_CHOICES).withEn("Sector 2 (Right)");
+    public final ModeSetting item3 = new ModeSetting("item3", "Сектор 3 (Слева)", "Тотем", ITEM_CHOICES).withEn("Sector 3 (Left)");
+    public final NumberSetting radius = new NumberSetting("radius", "Радиус меню", 115.0, 70.0, 190.0, 5.0).withEn("Menu Radius");
+    public final BooleanSetting blurBackdrop = new BooleanSetting("blur", "Размытие фона", true).withEn("Blur Backdrop");
+    public final BooleanSetting instantHoverSwap = new BooleanSetting("instant", "Свап сразу по наведению", false).withEn("Instant on Hover");
+    public final BooleanSetting showNotifications = new BooleanSetting("notify", "Уведомление в чат/тост", true).withEn("Notify");
+    public final BooleanSetting playSound = new BooleanSetting("sound", "Звуковой эффект", true).withEn("Sound");
 
     private boolean menuOpen = false;
     private int selectedSector = -1; // -1: none, 0: top, 1: bottom-right, 2: bottom-left
@@ -49,14 +53,17 @@ public final class TripleSwapModule extends Module {
 
     public TripleSwapModule() {
         super("triple_swap", "Тройной свап", "Круговое меню при зажатии клавиши для выбора 1 из 3 предметов (Талик/Шар/Тотем) в руку без флагов", Category.COMBAT);
+        setEn("Triple Swap", "Hold key to open 3-way radial pie menu for 0-flag combat items swap into hand");
         addSetting(swapKey);
         addSetting(targetHand);
         addSetting(item1);
         addSetting(item2);
         addSetting(item3);
+        addSetting(radius);
+        addSetting(blurBackdrop);
+        addSetting(instantHoverSwap);
         addSetting(showNotifications);
         addSetting(playSound);
-        addSetting(radius);
         setEnabled(true);
     }
 

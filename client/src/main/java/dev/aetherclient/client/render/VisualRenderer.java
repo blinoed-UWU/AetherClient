@@ -590,7 +590,7 @@ public final class VisualRenderer {
 
             if (!mm.esp.throughWalls.isEnabled() && !canSee) continue;
 
-            int drawCol = entityCol;
+            int drawCol = isFriend ? mm.esp.friendColor.getValue() : (isPlayer || isHostile ? mm.esp.enemyColor.getValue() : entityCol);
             if (mm.esp.colorByVisibility.isEnabled() && !canSee) {
                 drawCol = isFriend ? 0xFF229E74 : (isPlayer ? 0xFF9E86E8 : (isHostile ? 0xFFC95361 : 0xFF589E7E));
             }
@@ -602,6 +602,11 @@ public final class VisualRenderer {
             float by = boxRect[1];
             float bw = Math.max(8f, boxRect[2] - bx);
             float bh = Math.max(12f, boxRect[3] - by);
+
+            if (mm.esp.filled.isEnabled()) {
+                int fillA = (int) (mm.esp.fillAlpha.asFloat() * 255);
+                Render2D.drawRoundedRect(vg, bx, by, bw, bh, 3f, AetherPalette.withAlpha(drawCol, fillA));
+            }
 
             String style = mm.esp.boxStyle.getValue();
             if ("Стекло".equals(style)) {
@@ -630,12 +635,51 @@ public final class VisualRenderer {
 
             if (mm.esp.healthBar.isEnabled() && e instanceof LivingEntity living) {
                 float maxHp = Math.max(1f, living.getMaxHealth());
-                float ratio = Math.max(0f, Math.min(1f, living.getHealth() / maxHp));
+                float currentHp = living.getHealth();
+                float ratio = Math.max(0f, Math.min(1f, currentHp / maxHp));
                 float barX = bx - 4.5f;
                 float fillH = Math.max(2f, bh * ratio);
                 Render2D.drawRoundedRect(vg, barX, by, 2.2f, bh, 1.1f, 0x88000000);
                 int hpCol = ratio > 0.55f ? 0xFF5CE092 : (ratio > 0.25f ? 0xFFFFC857 : 0xFFFF5F6D);
                 Render2D.drawRoundedRect(vg, barX, by + (bh - fillH), 2.2f, fillH, 1.1f, hpCol);
+
+                if (mm.esp.showHpText.isEnabled()) {
+                    String hpStr = String.valueOf((int) Math.ceil(currentHp));
+                    float hpY = by + (bh - fillH);
+                    Render2D.drawTextBold(vg, hpStr, barX - 3f, hpY, 7.5f, hpCol, NanoVG.NVG_ALIGN_RIGHT | NanoVG.NVG_ALIGN_MIDDLE);
+                }
+            }
+
+            if (isPlayer && e instanceof net.minecraft.entity.player.PlayerEntity pe) {
+                float itemY = by + bh + 4f;
+                if (mm.esp.showHeldItem.isEnabled()) {
+                    ItemStack mainStack = pe.getMainHandStack();
+                    if (!mainStack.isEmpty()) {
+                        String itemName = mainStack.getName().getString();
+                        int count = mainStack.getCount();
+                        String itemText = count > 1 ? itemName + " x" + count : itemName;
+                        Render2D.drawTextBold(vg, itemText, bx + bw * 0.5f, itemY, 8.0f, 0xFFE2E8F0, NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_TOP);
+                        itemY += 10f;
+                    }
+                }
+                if (mm.esp.showArmor.isEnabled()) {
+                    float armX = bx + bw + 4f;
+                    float armY = by;
+                    net.minecraft.entity.EquipmentSlot[] eqSlots = {
+                            net.minecraft.entity.EquipmentSlot.HEAD,
+                            net.minecraft.entity.EquipmentSlot.CHEST,
+                            net.minecraft.entity.EquipmentSlot.LEGS,
+                            net.minecraft.entity.EquipmentSlot.FEET
+                    };
+                    for (net.minecraft.entity.EquipmentSlot eq : eqSlots) {
+                        ItemStack armStack = pe.getEquippedStack(eq);
+                        if (!armStack.isEmpty()) {
+                            String aName = armStack.getName().getString();
+                            Render2D.drawTextBold(vg, aName, armX, armY, 7.0f, 0xFF94A3B8, NanoVG.NVG_ALIGN_LEFT | NanoVG.NVG_ALIGN_TOP);
+                            armY += 8.5f;
+                        }
+                    }
+                }
             }
 
             if (mm.esp.nametags.isEnabled()) {
@@ -2892,75 +2936,89 @@ public final class VisualRenderer {
 
         float radius = mm.chinaHat.radius.asFloat();
         float height = mm.chinaHat.height.asFloat();
+        float offY = mm.chinaHat.offsetY.asFloat();
+        float rSpeed = mm.chinaHat.rainbowSpeed.asFloat();
         int baseColor = mm.chinaHat.rainbow.isEnabled()
-                ? AetherPalette.rainbow(globalTime)
+                ? AetherPalette.rainbow(globalTime * rSpeed)
                 : mm.chinaHat.color.getValue();
 
-        // Tip of the cone
-        double tipX = px;
-        double tipY = py + eyeH + 0.38 + height;
-        double tipZ = pz;
-        if (!wts.project(tipX, tipY, tipZ, ptScratch)) return;
-        float tipScrX = ptScratch[0];
-        float tipScrY = ptScratch[1];
+        int segments = Math.max(12, Math.min(48, (int) mm.chinaHat.segments.asFloat()));
+        boolean isTwoLayers = "2 слоя".equals(mm.chinaHat.layers.getValue());
+        int layersCount = isTwoLayers ? 2 : 1;
 
-        // Base circle points
-        int segments = 24;
-        double baseY = py + eyeH + 0.38;
-        float[] baseScrX = new float[segments + 1];
-        float[] baseScrY = new float[segments + 1];
-        boolean[] baseVis = new boolean[segments + 1];
+        for (int layer = 0; layer < layersCount; layer++) {
+            float lRadius = layer == 1 ? radius * 0.72f : radius;
+            float lHeight = layer == 1 ? height * 0.78f : height;
+            double baseY = py + eyeH + 0.38 + offY + (layer == 1 ? 0.04 : 0.0);
+            double tipY = baseY + lHeight;
 
-        for (int i = 0; i <= segments; i++) {
-            double angle = (2.0 * Math.PI * (i % segments)) / segments;
-            double bx = px + Math.cos(angle) * radius;
-            double bz = pz + Math.sin(angle) * radius;
-            if (wts.project(bx, baseY, bz, ptScratch2)) {
-                baseScrX[i] = ptScratch2[0];
-                baseScrY[i] = ptScratch2[1];
-                baseVis[i] = true;
-            } else {
-                baseVis[i] = false;
-            }
-        }
+            if (!wts.project(px, tipY, pz, ptScratch)) continue;
+            float tipScrX = ptScratch[0];
+            float tipScrY = ptScratch[1];
 
-        // Draw cone faces
-        int fillAlpha = 0x55000000 | (baseColor & 0x00FFFFFF);
-        for (int i = 0; i < segments; i++) {
-            if (!baseVis[i] || !baseVis[i + 1]) continue;
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                NVGColor cFill = NanoVgEngine.argbToNvg(fillAlpha, NVGColor.malloc(stack));
-                NanoVG.nvgBeginPath(vg);
-                NanoVG.nvgMoveTo(vg, tipScrX, tipScrY);
-                NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]);
-                NanoVG.nvgLineTo(vg, baseScrX[i + 1], baseScrY[i + 1]);
-                NanoVG.nvgClosePath(vg);
-                NanoVG.nvgFillColor(vg, cFill);
-                NanoVG.nvgFill(vg);
-            }
-        }
+            float[] baseScrX = new float[segments + 1];
+            float[] baseScrY = new float[segments + 1];
+            boolean[] baseVis = new boolean[segments + 1];
 
-        // Draw base rim circle
-        int rimColor = 0xEE000000 | (baseColor & 0x00FFFFFF);
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            NVGColor cRim = NanoVgEngine.argbToNvg(rimColor, NVGColor.malloc(stack));
-            NanoVG.nvgBeginPath(vg);
-            boolean started = false;
             for (int i = 0; i <= segments; i++) {
-                if (!baseVis[i]) {
-                    started = false;
-                    continue;
-                }
-                if (!started) {
-                    NanoVG.nvgMoveTo(vg, baseScrX[i], baseScrY[i]);
-                    started = true;
+                double angle = (2.0 * Math.PI * (i % segments)) / segments;
+                double bx = px + Math.cos(angle) * lRadius;
+                double bz = pz + Math.sin(angle) * lRadius;
+                if (wts.project(bx, baseY, bz, ptScratch2)) {
+                    baseScrX[i] = ptScratch2[0];
+                    baseScrY[i] = ptScratch2[1];
+                    baseVis[i] = true;
                 } else {
-                    NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]);
+                    baseVis[i] = false;
                 }
             }
-            NanoVG.nvgStrokeWidth(vg, 2.0f);
-            NanoVG.nvgStrokeColor(vg, cRim);
-            NanoVG.nvgStroke(vg);
+
+            int fillAlpha = (layer == 1 ? 0x77000000 : 0x50000000) | (baseColor & 0x00FFFFFF);
+            for (int i = 0; i < segments; i++) {
+                if (!baseVis[i] || !baseVis[i + 1]) continue;
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    NVGColor cFill = NanoVgEngine.argbToNvg(fillAlpha, NVGColor.malloc(stack));
+                    NanoVG.nvgBeginPath(vg);
+                    NanoVG.nvgMoveTo(vg, tipScrX, tipScrY);
+                    NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]);
+                    NanoVG.nvgLineTo(vg, baseScrX[i + 1], baseScrY[i + 1]);
+                    NanoVG.nvgClosePath(vg);
+                    NanoVG.nvgFillColor(vg, cFill);
+                    NanoVG.nvgFill(vg);
+                }
+            }
+
+            int rimColor = 0xEE000000 | (baseColor & 0x00FFFFFF);
+            if (mm.chinaHat.glow.isEnabled()) {
+                int glowCol = 0x55000000 | (baseColor & 0x00FFFFFF);
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    NVGColor cGlow = NanoVgEngine.argbToNvg(glowCol, NVGColor.malloc(stack));
+                    NanoVG.nvgBeginPath(vg);
+                    boolean started = false;
+                    for (int i = 0; i <= segments; i++) {
+                        if (!baseVis[i]) { started = false; continue; }
+                        if (!started) { NanoVG.nvgMoveTo(vg, baseScrX[i], baseScrY[i]); started = true; }
+                        else { NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]); }
+                    }
+                    NanoVG.nvgStrokeWidth(vg, 5.0f);
+                    NanoVG.nvgStrokeColor(vg, cGlow);
+                    NanoVG.nvgStroke(vg);
+                }
+            }
+
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                NVGColor cRim = NanoVgEngine.argbToNvg(rimColor, NVGColor.malloc(stack));
+                NanoVG.nvgBeginPath(vg);
+                boolean started = false;
+                for (int i = 0; i <= segments; i++) {
+                    if (!baseVis[i]) { started = false; continue; }
+                    if (!started) { NanoVG.nvgMoveTo(vg, baseScrX[i], baseScrY[i]); started = true; }
+                    else { NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]); }
+                }
+                NanoVG.nvgStrokeWidth(vg, layer == 1 ? 1.5f : 2.2f);
+                NanoVG.nvgStrokeColor(vg, cRim);
+                NanoVG.nvgStroke(vg);
+            }
         }
     }
 
@@ -2970,9 +3028,11 @@ public final class VisualRenderer {
         List<Vec3d[]> pathsToDraw = new ArrayList<>();
         List<double[]> impacts = new ArrayList<>();
 
-        for (Entity e : mc.world.getEntities()) {
-            if (e instanceof net.minecraft.entity.projectile.thrown.EnderPearlEntity pearl) {
-                simulatePearl(mc, pearl.getLerpedPos(tickDelta), pearl.getVelocity(), pathsToDraw, impacts);
+        if (mm.pearlPredict.otherPlayers.isEnabled()) {
+            for (Entity e : mc.world.getEntities()) {
+                if (e instanceof net.minecraft.entity.projectile.thrown.EnderPearlEntity pearl) {
+                    simulatePearl(mc, pearl.getLerpedPos(tickDelta), pearl.getVelocity(), pathsToDraw, impacts);
+                }
             }
         }
 
@@ -2990,29 +3050,62 @@ public final class VisualRenderer {
 
         int lineColor = mm.pearlPredict.color.getValue();
         float lineW = mm.pearlPredict.lineWidth.asFloat();
+        boolean hasGlow = mm.pearlPredict.glow.isEnabled();
+        boolean hasGradient = mm.pearlPredict.gradient.isEnabled();
 
         for (int pIdx = 0; pIdx < pathsToDraw.size(); pIdx++) {
             Vec3d[] path = pathsToDraw.get(pIdx);
             if (mm.pearlPredict.trajectory.isEnabled() && path.length > 1) {
-                try (MemoryStack stack = MemoryStack.stackPush()) {
-                    NVGColor cLine = NanoVgEngine.argbToNvg(lineColor, NVGColor.malloc(stack));
-                    NanoVG.nvgBeginPath(vg);
-                    boolean started = false;
-                    for (Vec3d pt : path) {
-                        if (wts.project(pt.x, pt.y, pt.z, ptScratch)) {
-                            if (!started) {
+                if (hasGlow) {
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        int glowCol = AetherPalette.withAlpha(lineColor, 45);
+                        NVGColor cGlow = NanoVgEngine.argbToNvg(glowCol, NVGColor.malloc(stack));
+                        NanoVG.nvgBeginPath(vg);
+                        boolean started = false;
+                        for (Vec3d pt : path) {
+                            if (wts.project(pt.x, pt.y, pt.z, ptScratch)) {
+                                if (!started) { NanoVG.nvgMoveTo(vg, ptScratch[0], ptScratch[1]); started = true; }
+                                else { NanoVG.nvgLineTo(vg, ptScratch[0], ptScratch[1]); }
+                            } else { started = false; }
+                        }
+                        NanoVG.nvgStrokeWidth(vg, lineW + 4.0f);
+                        NanoVG.nvgStrokeColor(vg, cGlow);
+                        NanoVG.nvgStroke(vg);
+                    }
+                }
+
+                if (hasGradient) {
+                    for (int s = 0; s < path.length - 1; s++) {
+                        float progress = (float) s / (float) (path.length - 1);
+                        int segCol = AetherPalette.lerpArgb(lineColor, 0xFFFFFFFF, progress * 0.7f);
+                        if (wts.project(path[s].x, path[s].y, path[s].z, ptScratch)
+                                && wts.project(path[s + 1].x, path[s + 1].y, path[s + 1].z, ptScratch2)) {
+                            try (MemoryStack stack = MemoryStack.stackPush()) {
+                                NVGColor cSeg = NanoVgEngine.argbToNvg(segCol, NVGColor.malloc(stack));
+                                NanoVG.nvgBeginPath(vg);
                                 NanoVG.nvgMoveTo(vg, ptScratch[0], ptScratch[1]);
-                                started = true;
-                            } else {
-                                NanoVG.nvgLineTo(vg, ptScratch[0], ptScratch[1]);
+                                NanoVG.nvgLineTo(vg, ptScratch2[0], ptScratch2[1]);
+                                NanoVG.nvgStrokeWidth(vg, lineW);
+                                NanoVG.nvgStrokeColor(vg, cSeg);
+                                NanoVG.nvgStroke(vg);
                             }
-                        } else {
-                            started = false;
                         }
                     }
-                    NanoVG.nvgStrokeWidth(vg, lineW);
-                    NanoVG.nvgStrokeColor(vg, cLine);
-                    NanoVG.nvgStroke(vg);
+                } else {
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        NVGColor cLine = NanoVgEngine.argbToNvg(lineColor, NVGColor.malloc(stack));
+                        NanoVG.nvgBeginPath(vg);
+                        boolean started = false;
+                        for (Vec3d pt : path) {
+                            if (wts.project(pt.x, pt.y, pt.z, ptScratch)) {
+                                if (!started) { NanoVG.nvgMoveTo(vg, ptScratch[0], ptScratch[1]); started = true; }
+                                else { NanoVG.nvgLineTo(vg, ptScratch[0], ptScratch[1]); }
+                            } else { started = false; }
+                        }
+                        NanoVG.nvgStrokeWidth(vg, lineW);
+                        NanoVG.nvgStrokeColor(vg, cLine);
+                        NanoVG.nvgStroke(vg);
+                    }
                 }
             }
 
@@ -3022,8 +3115,8 @@ public final class VisualRenderer {
                 double seconds = imp[3];
 
                 if (mm.pearlPredict.landingRing.isEnabled()) {
-                    int ringSegs = 20;
-                    float ringR = 0.65f;
+                    int ringSegs = 24;
+                    float ringR = mm.pearlPredict.ringSize.asFloat();
                     try (MemoryStack stack = MemoryStack.stackPush()) {
                         NVGColor cRing = NanoVgEngine.argbToNvg(lineColor, NVGColor.malloc(stack));
                         NanoVG.nvgBeginPath(vg);
@@ -3033,19 +3126,21 @@ public final class VisualRenderer {
                             double rx = ix + Math.cos(a) * ringR;
                             double rz = iz + Math.sin(a) * ringR;
                             if (wts.project(rx, iy + 0.05, rz, ptScratch2)) {
-                                if (!rStarted) {
-                                    NanoVG.nvgMoveTo(vg, ptScratch2[0], ptScratch2[1]);
-                                    rStarted = true;
-                                } else {
-                                    NanoVG.nvgLineTo(vg, ptScratch2[0], ptScratch2[1]);
-                                }
-                            } else {
-                                rStarted = false;
-                            }
+                                if (!rStarted) { NanoVG.nvgMoveTo(vg, ptScratch2[0], ptScratch2[1]); rStarted = true; }
+                                else { NanoVG.nvgLineTo(vg, ptScratch2[0], ptScratch2[1]); }
+                            } else { rStarted = false; }
                         }
-                        NanoVG.nvgStrokeWidth(vg, 2.0f);
+                        NanoVG.nvgStrokeWidth(vg, 2.2f);
                         NanoVG.nvgStrokeColor(vg, cRing);
                         NanoVG.nvgStroke(vg);
+                    }
+                }
+
+                if (mm.pearlPredict.impactBox.isEnabled()) {
+                    Box impBox = new Box(ix - 0.2, iy, iz - 0.2, ix + 0.2, iy + 0.4, iz + 0.2);
+                    if (wts.projectBox(impBox, boxRect, ptScratch)) {
+                        Render2D.drawRoundedRect(vg, boxRect[0], boxRect[1], boxRect[2] - boxRect[0], boxRect[3] - boxRect[1], 2f, AetherPalette.withAlpha(lineColor, 40));
+                        Render2D.drawRoundedOutline(vg, boxRect[0], boxRect[1], boxRect[2] - boxRect[0], boxRect[3] - boxRect[1], 2f, 1.2f, lineColor);
                     }
                 }
 

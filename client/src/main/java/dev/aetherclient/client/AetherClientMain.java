@@ -204,6 +204,7 @@ public final class AetherClientMain {
         }
         moduleManager.autoTool.onTick();
         moduleManager.chestStealer.onTick();
+        checkChatMessages(mc);
     }
 
     private void onHudRender(Object drawContext, Object tickCounter) {
@@ -409,6 +410,10 @@ public final class AetherClientMain {
             return true;
         }
 
+        if (moduleManager.maceHelper.onKey(key, action)) {
+            return true;
+        }
+
         if (action == GLFW.GLFW_PRESS && mc.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen chatScreen) {
             if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
                 if (handleChatCommand(mc, chatScreen)) {
@@ -508,6 +513,32 @@ public final class AetherClientMain {
                 } else if (moduleManager.clickPearl.middleClick.isEnabled()) {
                     moduleManager.clickPearl.triggerThrow(mc);
                 }
+            }
+        }
+
+        if (action == GLFW.GLFW_PRESS && mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?> handled) {
+            if (moduleManager.itemScroller.isEnabled()) {
+                try {
+                    java.lang.reflect.Field slotField = null;
+                    Class<?> cur = handled.getClass();
+                    while (cur != null && cur != Object.class) {
+                        try {
+                            slotField = cur.getDeclaredField("focusedSlot");
+                            break;
+                        } catch (NoSuchFieldException e) {
+                            cur = cur.getSuperclass();
+                        }
+                    }
+                    if (slotField != null) {
+                        slotField.setAccessible(true);
+                        Object sl = slotField.get(handled);
+                        if (sl instanceof net.minecraft.screen.slot.Slot slot && slot.hasStack()) {
+                            if (moduleManager.itemScroller.onSlotClick(handled, slot, slot.id, button, net.minecraft.screen.slot.SlotActionType.QUICK_MOVE)) {
+                                return true;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
             }
         }
 
@@ -645,6 +676,41 @@ public final class AetherClientMain {
         return false;
     }
 
+    private int lastChatLineCount = 0;
+    private java.lang.reflect.Field chatMessagesField = null;
+
+    private void checkChatMessages(MinecraftClient mc) {
+        if (!moduleManager.autoTpAccept.isEnabled() || mc.inGameHud == null) return;
+        try {
+            net.minecraft.client.gui.hud.ChatHud chat = mc.inGameHud.getChatHud();
+            if (chat == null) return;
+            if (chatMessagesField == null) {
+                for (java.lang.reflect.Field f : net.minecraft.client.gui.hud.ChatHud.class.getDeclaredFields()) {
+                    if (java.util.List.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        chatMessagesField = f;
+                        break;
+                    }
+                }
+            }
+            if (chatMessagesField != null) {
+                java.util.List<?> list = (java.util.List<?>) chatMessagesField.get(chat);
+                if (list != null) {
+                    int size = list.size();
+                    if (size > lastChatLineCount) {
+                        for (int i = lastChatLineCount; i < size; i++) {
+                            Object item = list.get(i);
+                            if (item instanceof net.minecraft.client.gui.hud.ChatHudLine line) {
+                                moduleManager.autoTpAccept.onChatMessage(line.content().getString());
+                            }
+                        }
+                    }
+                    lastChatLineCount = size;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private boolean onMouseScroll(long window, double horizontal, double vertical) {
         if (unloadRequested || unloaded) return false;
         if (clickGuiController.isOpen()) {
@@ -707,9 +773,15 @@ public final class AetherClientMain {
         if (moduleManager.swingAnimation.ignoreMining.isEnabled() && mc.interactionManager != null && mc.interactionManager.isBreakingBlock()) {
             return false;
         }
+        if (moduleManager.swingAnimation.onlyAttacking.isEnabled() && mc.targetedEntity == null) {
+            return false;
+        }
+        if (!moduleManager.swingAnimation.offhandSwing.isEnabled() && arm != mc.player.getMainArm()) {
+            return false;
+        }
 
         int side = arm == net.minecraft.util.Arm.RIGHT ? 1 : -1;
-        float progress = Math.max(0f, Math.min(1f, swingProgress * moduleManager.swingAnimation.swingSpeed.asFloat()));
+        float progress = Math.max(0f, Math.min(1f, swingProgress * moduleManager.swingAnimation.swingSpeed.asFloat() * moduleManager.viewmodel.swingMultiplier.asFloat()));
         float sin1 = net.minecraft.util.math.MathHelper.sin(progress * progress * (float) Math.PI);
         float sin2 = net.minecraft.util.math.MathHelper.sin(net.minecraft.util.math.MathHelper.sqrt(progress) * (float) Math.PI);
         float pitchAngle = moduleManager.swingAnimation.angle.asFloat();
@@ -811,20 +883,33 @@ public final class AetherClientMain {
             }
         }
 
+        boolean isMainHand = mc != null && mc.player != null && arm == mc.player.getMainArm();
         int side = arm == net.minecraft.util.Arm.RIGHT ? 1 : -1;
-        float offX = moduleManager.viewmodel.posX.asFloat() * (float) side;
-        float offY = moduleManager.viewmodel.posY.asFloat();
-        float offZ = moduleManager.viewmodel.posZ.asFloat();
+        float offX, offY, offZ, sc;
+
+        if (moduleManager.viewmodel.separateHands.isEnabled() && !isMainHand) {
+            offX = moduleManager.viewmodel.offhandX.asFloat();
+            offY = moduleManager.viewmodel.offhandY.asFloat();
+            offZ = moduleManager.viewmodel.offhandZ.asFloat();
+            sc = moduleManager.viewmodel.offhandScale.asFloat();
+        } else {
+            boolean mirror = moduleManager.viewmodel.mirrorHands.isEnabled();
+            offX = moduleManager.viewmodel.posX.asFloat() * (mirror ? (float) side : 1.0f);
+            offY = moduleManager.viewmodel.posY.asFloat();
+            offZ = moduleManager.viewmodel.posZ.asFloat();
+            sc = moduleManager.viewmodel.scale.asFloat();
+        }
+
         matrices.translate((float) side * 0.56F + offX, -0.52F + equipProgress * -0.6F + offY, -0.72F + offZ);
 
-        float sc = moduleManager.viewmodel.scale.asFloat();
         if (sc != 1.0f && sc > 0.01f) {
             matrices.scale(sc, sc, sc);
         }
 
+        boolean mirrorRot = moduleManager.viewmodel.mirrorHands.isEnabled();
         float pitch = moduleManager.viewmodel.rotPitch.asFloat();
-        float yaw = moduleManager.viewmodel.rotYaw.asFloat() * (float) side;
-        float roll = moduleManager.viewmodel.rotRoll.asFloat() * (float) side;
+        float yaw = moduleManager.viewmodel.rotYaw.asFloat() * (mirrorRot ? (float) side : 1.0f);
+        float roll = moduleManager.viewmodel.rotRoll.asFloat() * (mirrorRot ? (float) side : 1.0f);
         if (pitch != 0f) matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_X.rotationDegrees(pitch));
         if (yaw != 0f) matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_Y.rotationDegrees(yaw));
         if (roll != 0f) matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_Z.rotationDegrees(roll));

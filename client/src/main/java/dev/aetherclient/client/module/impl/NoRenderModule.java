@@ -9,15 +9,21 @@ import net.minecraft.entity.effect.StatusEffects;
 public final class NoRenderModule extends Module {
     public final BooleanSetting hideFire = addSetting(new BooleanSetting("fire", "Скрыть огонь", true).withEn("Hide Fire Overlay"));
     public final BooleanSetting hideHurtCam = addSetting(new BooleanSetting("hurtcam", "Убрать тряску урона", true).withEn("Hide Hurt Cam"));
+    public final BooleanSetting hideTotem = addSetting(new BooleanSetting("totem", "Скрыть анимацию тотема", true).withEn("Hide Totem Pop"));
+    public final BooleanSetting hidePumpkin = addSetting(new BooleanSetting("pumpkin", "Скрыть тыкву", true).withEn("Hide Pumpkin Overlay"));
     public final BooleanSetting hideBlindness = addSetting(new BooleanSetting("blindness", "Убрать слепоту", true).withEn("Hide Blindness"));
     public final BooleanSetting hideDarkness = addSetting(new BooleanSetting("darkness", "Убрать тьму", true).withEn("Hide Darkness"));
     public final BooleanSetting hideNausea = addSetting(new BooleanSetting("nausea", "Убрать тошноту", true).withEn("Hide Nausea"));
+    public final BooleanSetting hideFog = addSetting(new BooleanSetting("fog", "Убрать туман", true).withEn("Hide Fog"));
+    public final BooleanSetting hideBossBar = addSetting(new BooleanSetting("bossbar", "Скрыть полосу босса", false).withEn("Hide Boss Bar"));
+    public final BooleanSetting hideRain = addSetting(new BooleanSetting("rain", "Убрать дождь", true).withEn("Hide Rain"));
+    public final BooleanSetting hideExplosions = addSetting(new BooleanSetting("explosions", "Скрыть частицы взрывов", true).withEn("Hide Explosions"));
 
     private Double savedDamageTilt = null;
 
     public NoRenderModule() {
-        super("no_render", "No Render", "Скрывает огонь, тряску урона и эффекты слепоты/тьмы/тошноты", Category.VISUAL);
-        setEn("No Render", "Hides fire, hurt cam shake and blindness/darkness/nausea overlays");
+        super("no_render", "No Render", "Скрывает огонь, анимацию тотема, тряску урона, тыкву, туман и частицы взрывов для максимального FPS", Category.VISUAL);
+        setEn("No Render", "Hides fire, totem pop, hurt cam, pumpkin overlay, fog and explosion particles for max FPS");
     }
 
     @Override

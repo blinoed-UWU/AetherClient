@@ -113,6 +113,9 @@ public final class ModuleManager {
     public final dev.aetherclient.client.module.impl.AutoToolModule autoTool = register(new dev.aetherclient.client.module.impl.AutoToolModule());
     public final dev.aetherclient.client.module.impl.ChestStealerModule chestStealer = register(new dev.aetherclient.client.module.impl.ChestStealerModule());
     public final dev.aetherclient.client.module.impl.InventoryArrangerModule invArranger = register(new dev.aetherclient.client.module.impl.InventoryArrangerModule());
+    public final dev.aetherclient.client.module.impl.MaceHelperModule maceHelper = register(new dev.aetherclient.client.module.impl.MaceHelperModule());
+    public final dev.aetherclient.client.module.impl.AutoTpAcceptModule autoTpAccept = register(new dev.aetherclient.client.module.impl.AutoTpAcceptModule());
+    public final dev.aetherclient.client.module.impl.ItemScrollerModule itemScroller = register(new dev.aetherclient.client.module.impl.ItemScrollerModule());
     public final dev.aetherclient.client.module.impl.UnHookModule unHook = register(new dev.aetherclient.client.module.impl.UnHookModule());
 
     private <M extends Module> M register(M module) {
