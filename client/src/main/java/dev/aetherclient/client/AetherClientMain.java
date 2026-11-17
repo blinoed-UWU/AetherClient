@@ -59,6 +59,7 @@ public final class AetherClientMain {
     private final TargetHudElement targetHud;
     private final List<HudElement> hudElements;
     private final ClickGuiController clickGuiController;
+    private final dev.aetherclient.client.gui.TripleSwapOverlay tripleSwapOverlay;
 
     private long lastFrameNs = 0L;
     private long lastThemePollMs = 0L;
@@ -70,6 +71,12 @@ public final class AetherClientMain {
     private boolean loggedBlurError = false;
     private boolean loggedRenderError = false;
 
+    public static void requestUnload() {
+        if (instance != null) {
+            instance.unloadRequested = true;
+        }
+    }
+
     private AetherClientMain() {
         this.configManager = new ConfigManager();
         this.moduleManager = new ModuleManager();
@@ -77,6 +84,7 @@ public final class AetherClientMain {
         this.glGuard = new GlStateGuard();
         this.soundEngine = new SoundEngine();
         this.visualRenderer = new VisualRenderer();
+        this.tripleSwapOverlay = new dev.aetherclient.client.gui.TripleSwapOverlay(moduleManager.tripleSwap);
 
         WatermarkHud watermark = new WatermarkHud(moduleManager.hud);
         CoordsHud coords = new CoordsHud(moduleManager.hud);
@@ -194,6 +202,8 @@ public final class AetherClientMain {
                 module.onTick(mc);
             }
         }
+        moduleManager.autoTool.onTick();
+        moduleManager.chestStealer.onTick();
     }
 
     private void onHudRender(Object drawContext, Object tickCounter) {
@@ -351,6 +361,11 @@ public final class AetherClientMain {
                 clickGuiController.render(nanoVg, palette, screenW, screenH, dt);
                 nanoVg.endFrame();
             }
+            if (moduleManager.tripleSwap.getMenuProgress() > 0.01f) {
+                nanoVg.beginFrame(screenW, screenH, uiScale);
+                tripleSwapOverlay.render(nanoVg.handle(), screenW, screenH, palette, dt);
+                nanoVg.endFrame();
+            }
         } catch (Throwable err) {
             if (!loggedRenderError) {
                 loggedRenderError = true;
@@ -383,6 +398,14 @@ public final class AetherClientMain {
         }
 
         if (clickGuiController.onKey(mc, key, ki.scancode(), ki.modifiers(), action)) {
+            return true;
+        }
+
+        if (moduleManager.tripleSwap.onKey(key, ki.scancode(), action, ki.modifiers())) {
+            return true;
+        }
+
+        if (moduleManager.invArranger.onKey(key, action)) {
             return true;
         }
 
@@ -541,6 +564,9 @@ public final class AetherClientMain {
                 || moduleManager.colorFilter.isEnabled()
                 || moduleManager.notifications.isEnabled()
                 || moduleManager.aspectRatio.isEnabled()
+                || moduleManager.chinaHat.isEnabled()
+                || moduleManager.pearlPredict.isEnabled()
+                || moduleManager.tripleSwap.isMenuOpen()
                 || moduleManager.itemRadius.isEnabled();
     }
 
@@ -550,6 +576,7 @@ public final class AetherClientMain {
         this.rawMouseX = rawX;
         this.rawMouseY = rawY;
         this.hasCursorPos = true;
+        moduleManager.tripleSwap.onCursorPos(rawX, rawY);
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null || mc.getWindow() == null) return;
         syncCursorProjection(mc.getWindow());

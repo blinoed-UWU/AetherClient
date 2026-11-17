@@ -13,6 +13,7 @@ import dev.aetherclient.launcher.core.model.JvmProcessInfo
 import dev.aetherclient.launcher.core.model.LaunchState
 import dev.aetherclient.launcher.core.model.LoaderSettings
 import dev.aetherclient.launcher.core.platform.LauncherPaths
+import dev.aetherclient.launcher.core.platform.OsType
 import dev.aetherclient.launcher.core.platform.PlatformInfo
 import dev.aetherclient.launcher.core.storage.LauncherStateStore
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -375,6 +376,145 @@ class LauncherController {
 
     fun dismissConfigResetBanner() {
         configResetBanner = null
+    }
+
+    var updateInfo by mutableStateOf<dev.aetherclient.launcher.core.update.UpdateInfo?>(null)
+        private set
+    var isCheckingUpdate by mutableStateOf(false)
+        private set
+    var isDownloadingUpdate by mutableStateOf(false)
+        private set
+    var updateProgress by mutableStateOf(0f)
+        private set
+    var updateBanner by mutableStateOf<String?>(null)
+        private set
+
+    fun checkForUpdates(silent: Boolean = false) {
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+        scope.launch {
+            dev.aetherclient.launcher.core.update.UpdateManager.checkUpdate().fold(
+                onSuccess = { info ->
+                    updateInfo = info
+                    isCheckingUpdate = false
+                    if (info.isAvailable) {
+                        updateBanner = if (settings.language.equals("EN", ignoreCase = true)) {
+                            "Update available: v${info.version}! Click to update."
+                        } else {
+                            "Доступно обновление: v${info.version}! Нажмите для обновления."
+                        }
+                    } else if (!silent) {
+                        updateBanner = if (settings.language.equals("EN", ignoreCase = true)) {
+                            "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
+                        } else {
+                            "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
+                        }
+                    }
+                },
+                onFailure = { err ->
+                    isCheckingUpdate = false
+                    if (!silent) {
+                        updateBanner = "Ошибка проверки обновлений: ${err.message}"
+                    }
+                }
+            )
+        }
+    }
+
+    fun downloadAndApplyUpdate() {
+        val info = updateInfo ?: return
+        if (isDownloadingUpdate) return
+        isDownloadingUpdate = true
+        updateProgress = 0f
+        scope.launch {
+            dev.aetherclient.launcher.core.update.UpdateManager.downloadUpdate(info.downloadUrl) { prog ->
+                updateProgress = prog
+            }.fold(
+                onSuccess = {
+                    isDownloadingUpdate = false
+                    updateBanner = if (settings.language.equals("EN", ignoreCase = true)) {
+                        "Update v${info.version} downloaded! Restart launcher to apply."
+                    } else {
+                        "Обновление v${info.version} успешно загружено! Перезапустите лаунчер."
+                    }
+                },
+                onFailure = { err ->
+                    isDownloadingUpdate = false
+                    updateBanner = "Ошибка скачивания: ${err.message}"
+                }
+            )
+        }
+    }
+
+    fun dismissUpdateBanner() {
+        updateBanner = null
+    }
+
+    var traceCleanBanner by mutableStateOf<String?>(null)
+        private set
+
+    fun cleanTraces(cleanLogsAndCaches: Boolean = true, wipeConfigs: Boolean = false, selfDestruct: Boolean = false) {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                if (cleanLogsAndCaches) {
+                    if (Files.exists(LauncherPaths.logsDir)) {
+                        Files.walk(LauncherPaths.logsDir).sorted(Comparator.reverseOrder()).forEach {
+                            if (it != LauncherPaths.logsDir) runCatching { Files.deleteIfExists(it) }
+                        }
+                    }
+                    if (Files.exists(LauncherPaths.payloadsDir)) {
+                        Files.walk(LauncherPaths.payloadsDir).sorted(Comparator.reverseOrder()).forEach {
+                            if (it != LauncherPaths.payloadsDir) runCatching { Files.deleteIfExists(it) }
+                        }
+                    }
+                    val tmpDir = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir", "/tmp"))
+                    if (Files.exists(tmpDir)) {
+                        runCatching {
+                            Files.list(tmpDir).use { stream ->
+                                stream.filter { it.fileName.toString().startsWith("aether") || it.fileName.toString().startsWith(".attach_pid") }
+                                    .forEach { runCatching { Files.deleteIfExists(it) } }
+                            }
+                        }
+                    }
+                }
+
+                if (wipeConfigs) {
+                    if (Files.exists(LauncherPaths.configsDir)) {
+                        Files.walk(LauncherPaths.configsDir).sorted(Comparator.reverseOrder()).forEach {
+                            if (it != LauncherPaths.configsDir) runCatching { Files.deleteIfExists(it) }
+                        }
+                    }
+                    runCatching { Files.deleteIfExists(LauncherPaths.stateFile) }
+                }
+
+                if (selfDestruct) {
+                    val codeSource = LauncherController::class.java.protectionDomain?.codeSource?.location?.toURI()?.let { java.nio.file.Paths.get(it) }
+                    val isWindows = PlatformInfo.os == OsType.WINDOWS
+                    if (isWindows) {
+                        val exePath = codeSource?.toString() ?: ""
+                        val cacheDir = LauncherPaths.rootDir.toString()
+                        ProcessBuilder("cmd.exe", "/c", "timeout /t 1 /nobreak >nul & del /f /q \"$exePath\" & rmdir /s /q \"$cacheDir\"").start()
+                    } else {
+                        val path = codeSource?.toString() ?: ""
+                        val cacheDir = LauncherPaths.rootDir.toString()
+                        ProcessBuilder("sh", "-c", "sleep 1; rm -f '$path'; rm -rf '$cacheDir'").start()
+                    }
+                    System.exit(0)
+                }
+
+                traceCleanBanner = if (settings.language.equals("EN", ignoreCase = true)) {
+                    "Traces and temporary caches successfully cleaned!"
+                } else {
+                    "Следы и временные кэши успешно очищены! Полная чистота для проверки."
+                }
+            }.onFailure { err ->
+                traceCleanBanner = "Ошибка очистки: ${err.message}"
+            }
+        }
+    }
+
+    fun dismissTraceCleanBanner() {
+        traceCleanBanner = null
     }
 
     fun openConfigsFolder() {

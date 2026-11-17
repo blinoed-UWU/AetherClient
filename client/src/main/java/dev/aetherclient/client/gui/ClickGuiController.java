@@ -1949,18 +1949,57 @@ public final class ClickGuiController {
         }
         Render2D.popScissor(vg);
 
-        // Bottom Reset Button
+        // Bottom Action Buttons: Code Share & Reset
         float resetY = listY + listH + 4f;
-        float resetW = 150f;
-        float resetH = 20f;
-        float resetX = bodyX + (bodyW - resetW) * 0.5f;
-        boolean rHov = Render2D.isHovered(mouseX, mouseY, resetX, resetY, resetW, resetH);
-        Render2D.drawRoundedRect(vg, resetX, resetY, resetW, resetH, 5f,
+        float btnRowH = 20f;
+        float btnGap = 8f;
+        float codeBtnW = (bodyW - btnGap * 2f) / 3f;
+
+        // Button 1: Copy Code to Clipboard
+        float b1X = bodyX;
+        boolean b1Hov = Render2D.isHovered(mouseX, mouseY, b1X, resetY, codeBtnW, btnRowH);
+        Render2D.drawRoundedRect(vg, b1X, resetY, codeBtnW, btnRowH, 5f,
+                b1Hov ? palette.primary : AetherPalette.withAlpha(palette.primary, 175));
+        Render2D.drawTextBold(vg, I18n.tr("Копировать код", "Copy Code"), b1X + codeBtnW * 0.5f, resetY + btnRowH * 0.5f + 0.3f, 8.8f,
+                palette.onPrimary, NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_MIDDLE);
+        addClippedClick(clickTargets, b1X, resetY, codeBtnW, btnRowH, bodyY, bodyY + bodyH, () -> {
+            String code = configManager.exportConfigCode(moduleManager, hudElements);
+            if (mc != null && mc.keyboard != null) {
+                mc.keyboard.setClipboard(code);
+                ToastManager.get().push("Конфиги", "Код скопирован в буфер! (Без файлов на диске)", 0xFF10B981);
+            }
+            soundEngine.playClick(mc, soundsEnabled(), soundVolume());
+        });
+
+        // Button 2: Import Code from Clipboard
+        float b2X = b1X + codeBtnW + btnGap;
+        boolean b2Hov = Render2D.isHovered(mouseX, mouseY, b2X, resetY, codeBtnW, btnRowH);
+        Render2D.drawRoundedRect(vg, b2X, resetY, codeBtnW, btnRowH, 5f,
+                b2Hov ? palette.tertiary : AetherPalette.withAlpha(palette.tertiary, 175));
+        Render2D.drawTextBold(vg, I18n.tr("Вставить код", "Paste Code"), b2X + codeBtnW * 0.5f, resetY + btnRowH * 0.5f + 0.3f, 8.8f,
+                palette.onPrimary, NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_MIDDLE);
+        addClippedClick(clickTargets, b2X, resetY, codeBtnW, btnRowH, bodyY, bodyY + bodyH, () -> {
+            if (mc != null && mc.keyboard != null) {
+                String clip = mc.keyboard.getClipboard();
+                boolean ok = configManager.importConfigCode(clip, moduleManager, hudElements);
+                if (ok) {
+                    ToastManager.get().push("Конфиги", "Конфиг успешно применён из кода!", 0xFF10B981);
+                } else {
+                    ToastManager.get().push("Конфиги", "Некорректный код конфига в буфере!", 0xFFEF4444);
+                }
+            }
+            soundEngine.playClick(mc, soundsEnabled(), soundVolume());
+        });
+
+        // Button 3: Reset Settings
+        float b3X = b2X + codeBtnW + btnGap;
+        boolean rHov = Render2D.isHovered(mouseX, mouseY, b3X, resetY, codeBtnW, btnRowH);
+        Render2D.drawRoundedRect(vg, b3X, resetY, codeBtnW, btnRowH, 5f,
                 rHov ? AetherPalette.withAlpha(palette.onSurface, 35) : AetherPalette.withAlpha(palette.onSurface, 18));
-        Render2D.drawText(vg, I18n.tr("Сбросить всё к дефолтным", "Reset to Default Settings"), resetX + resetW * 0.5f, resetY + resetH * 0.5f + 0.3f, 9.0f,
+        Render2D.drawText(vg, I18n.tr("Сбросить всё", "Reset All"), b3X + codeBtnW * 0.5f, resetY + btnRowH * 0.5f + 0.3f, 8.8f,
                 palette.onSurfaceVariant, NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_MIDDLE);
 
-        addClippedClick(clickTargets, resetX, resetY, resetW, resetH, bodyY, bodyY + bodyH, () -> {
+        addClippedClick(clickTargets, b3X, resetY, codeBtnW, btnRowH, bodyY, bodyY + bodyH, () -> {
             for (Module m : moduleManager.getModules()) {
                 if (m.isEnabled()) m.setEnabled(false);
             }

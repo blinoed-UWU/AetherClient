@@ -59,6 +59,19 @@ object LauncherPaths {
     val stateFile: Path get() = rootDir.resolve("loader_settings.json")
     val payloadsDir: Path get() = rootDir.resolve("payloads")
     val configsDir: Path get() = rootDir.resolve("configs")
+    val logsDir: Path get() = rootDir.resolve("logs")
+
+    val localAppDataDir: Path by lazy {
+        val home = System.getProperty("user.home")
+        when (PlatformInfo.os) {
+            OsType.WINDOWS -> {
+                val local = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }
+                if (local != null) Paths.get(local, "AetherClient")
+                else Paths.get(home, "AppData", "Local", "AetherClient")
+            }
+            else -> rootDir
+        }
+    }
 }
 
 object HashUtils {

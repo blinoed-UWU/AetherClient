@@ -107,6 +107,13 @@ public final class ModuleManager {
     public final FastSwapModule fastSwap = register(new FastSwapModule());
     public final DiscordRpcModule discordRpc = register(new DiscordRpcModule());
     public final HitboxesModule hitboxes = register(new HitboxesModule());
+    public final dev.aetherclient.client.module.impl.TripleSwapModule tripleSwap = register(new dev.aetherclient.client.module.impl.TripleSwapModule());
+    public final dev.aetherclient.client.module.impl.ChinaHatModule chinaHat = register(new dev.aetherclient.client.module.impl.ChinaHatModule());
+    public final dev.aetherclient.client.module.impl.PearlPredictModule pearlPredict = register(new dev.aetherclient.client.module.impl.PearlPredictModule());
+    public final dev.aetherclient.client.module.impl.AutoToolModule autoTool = register(new dev.aetherclient.client.module.impl.AutoToolModule());
+    public final dev.aetherclient.client.module.impl.ChestStealerModule chestStealer = register(new dev.aetherclient.client.module.impl.ChestStealerModule());
+    public final dev.aetherclient.client.module.impl.InventoryArrangerModule invArranger = register(new dev.aetherclient.client.module.impl.InventoryArrangerModule());
+    public final dev.aetherclient.client.module.impl.UnHookModule unHook = register(new dev.aetherclient.client.module.impl.UnHookModule());
 
     private <M extends Module> M register(M module) {
         modules.add(module);

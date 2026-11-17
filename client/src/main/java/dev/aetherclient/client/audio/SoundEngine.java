@@ -17,6 +17,22 @@ import java.nio.ShortBuffer;
 public final class SoundEngine {
     private static final int SAMPLE_RATE = 44100;
     private static final int SOURCE_POOL_SIZE = 4;
+    private static volatile SoundEngine instance;
+
+    public static SoundEngine get() {
+        if (instance == null) {
+            synchronized (SoundEngine.class) {
+                if (instance == null) {
+                    instance = new SoundEngine();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public SoundEngine() {
+        instance = this;
+    }
 
     private boolean initialized = false;
     private boolean openAlAvailable = false;

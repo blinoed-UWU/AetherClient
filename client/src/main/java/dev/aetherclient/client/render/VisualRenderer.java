@@ -445,6 +445,14 @@ public final class VisualRenderer {
             renderHitboxes(mc, mm, vg, tickDelta);
         }
 
+        if (mm.chinaHat.isEnabled() && wts.isValid()) {
+            renderChinaHat(mc, mm, vg, palette, tickDelta);
+        }
+
+        if (mm.pearlPredict.isEnabled() && wts.isValid()) {
+            renderPearlPredict(mc, mm, vg, palette, tickDelta);
+        }
+
         if (mm.customSky.isEnabled()) {
             renderCustomSky(mc, mm, vg, palette, screenW, screenH, dt);
         } else if (mm.timeChanger.isEnabled() && mm.timeChanger.skyboxTint.isEnabled()) {
@@ -2869,5 +2877,234 @@ public final class VisualRenderer {
             NanoVG.nvgFillColor(vg, col);
             NanoVG.nvgFill(vg);
         }
+    }
+
+    private void renderChinaHat(MinecraftClient mc, ModuleManager mm, long vg, AetherPalette palette, float tickDelta) {
+        if (mc.player == null) return;
+        boolean isFirstPerson = mc.options.getPerspective().isFirstPerson();
+        if (isFirstPerson && !mm.chinaHat.firstPerson.isEnabled()) return;
+
+        Vec3d lerped = mc.player.getLerpedPos(tickDelta);
+        double px = lerped.x;
+        double py = lerped.y;
+        double pz = lerped.z;
+        double eyeH = mc.player.getEyeHeight(mc.player.getPose());
+
+        float radius = mm.chinaHat.radius.asFloat();
+        float height = mm.chinaHat.height.asFloat();
+        int baseColor = mm.chinaHat.rainbow.isEnabled()
+                ? AetherPalette.rainbow(globalTime)
+                : mm.chinaHat.color.getValue();
+
+        // Tip of the cone
+        double tipX = px;
+        double tipY = py + eyeH + 0.38 + height;
+        double tipZ = pz;
+        if (!wts.project(tipX, tipY, tipZ, ptScratch)) return;
+        float tipScrX = ptScratch[0];
+        float tipScrY = ptScratch[1];
+
+        // Base circle points
+        int segments = 24;
+        double baseY = py + eyeH + 0.38;
+        float[] baseScrX = new float[segments + 1];
+        float[] baseScrY = new float[segments + 1];
+        boolean[] baseVis = new boolean[segments + 1];
+
+        for (int i = 0; i <= segments; i++) {
+            double angle = (2.0 * Math.PI * (i % segments)) / segments;
+            double bx = px + Math.cos(angle) * radius;
+            double bz = pz + Math.sin(angle) * radius;
+            if (wts.project(bx, baseY, bz, ptScratch2)) {
+                baseScrX[i] = ptScratch2[0];
+                baseScrY[i] = ptScratch2[1];
+                baseVis[i] = true;
+            } else {
+                baseVis[i] = false;
+            }
+        }
+
+        // Draw cone faces
+        int fillAlpha = 0x55000000 | (baseColor & 0x00FFFFFF);
+        for (int i = 0; i < segments; i++) {
+            if (!baseVis[i] || !baseVis[i + 1]) continue;
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                NVGColor cFill = NanoVgEngine.argbToNvg(fillAlpha, NVGColor.malloc(stack));
+                NanoVG.nvgBeginPath(vg);
+                NanoVG.nvgMoveTo(vg, tipScrX, tipScrY);
+                NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]);
+                NanoVG.nvgLineTo(vg, baseScrX[i + 1], baseScrY[i + 1]);
+                NanoVG.nvgClosePath(vg);
+                NanoVG.nvgFillColor(vg, cFill);
+                NanoVG.nvgFill(vg);
+            }
+        }
+
+        // Draw base rim circle
+        int rimColor = 0xEE000000 | (baseColor & 0x00FFFFFF);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            NVGColor cRim = NanoVgEngine.argbToNvg(rimColor, NVGColor.malloc(stack));
+            NanoVG.nvgBeginPath(vg);
+            boolean started = false;
+            for (int i = 0; i <= segments; i++) {
+                if (!baseVis[i]) {
+                    started = false;
+                    continue;
+                }
+                if (!started) {
+                    NanoVG.nvgMoveTo(vg, baseScrX[i], baseScrY[i]);
+                    started = true;
+                } else {
+                    NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]);
+                }
+            }
+            NanoVG.nvgStrokeWidth(vg, 2.0f);
+            NanoVG.nvgStrokeColor(vg, cRim);
+            NanoVG.nvgStroke(vg);
+        }
+    }
+
+    private void renderPearlPredict(MinecraftClient mc, ModuleManager mm, long vg, AetherPalette palette, float tickDelta) {
+        if (mc.world == null || mc.player == null) return;
+
+        List<Vec3d[]> pathsToDraw = new ArrayList<>();
+        List<double[]> impacts = new ArrayList<>();
+
+        for (Entity e : mc.world.getEntities()) {
+            if (e instanceof net.minecraft.entity.projectile.thrown.EnderPearlEntity pearl) {
+                simulatePearl(mc, pearl.getLerpedPos(tickDelta), pearl.getVelocity(), pathsToDraw, impacts);
+            }
+        }
+
+        if (mm.pearlPredict.predictInHand.isEnabled()) {
+            boolean holding = mc.player.getMainHandStack().isOf(Items.ENDER_PEARL) || mc.player.getOffHandStack().isOf(Items.ENDER_PEARL);
+            if (holding) {
+                Vec3d eye = mc.player.getEyePos();
+                Vec3d rot = mc.player.getRotationVector();
+                Vec3d vel = rot.multiply(1.5);
+                simulatePearl(mc, eye, vel, pathsToDraw, impacts);
+            }
+        }
+
+        if (pathsToDraw.isEmpty()) return;
+
+        int lineColor = mm.pearlPredict.color.getValue();
+        float lineW = mm.pearlPredict.lineWidth.asFloat();
+
+        for (int pIdx = 0; pIdx < pathsToDraw.size(); pIdx++) {
+            Vec3d[] path = pathsToDraw.get(pIdx);
+            if (mm.pearlPredict.trajectory.isEnabled() && path.length > 1) {
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    NVGColor cLine = NanoVgEngine.argbToNvg(lineColor, NVGColor.malloc(stack));
+                    NanoVG.nvgBeginPath(vg);
+                    boolean started = false;
+                    for (Vec3d pt : path) {
+                        if (wts.project(pt.x, pt.y, pt.z, ptScratch)) {
+                            if (!started) {
+                                NanoVG.nvgMoveTo(vg, ptScratch[0], ptScratch[1]);
+                                started = true;
+                            } else {
+                                NanoVG.nvgLineTo(vg, ptScratch[0], ptScratch[1]);
+                            }
+                        } else {
+                            started = false;
+                        }
+                    }
+                    NanoVG.nvgStrokeWidth(vg, lineW);
+                    NanoVG.nvgStrokeColor(vg, cLine);
+                    NanoVG.nvgStroke(vg);
+                }
+            }
+
+            if (pIdx < impacts.size()) {
+                double[] imp = impacts.get(pIdx);
+                double ix = imp[0], iy = imp[1], iz = imp[2];
+                double seconds = imp[3];
+
+                if (mm.pearlPredict.landingRing.isEnabled()) {
+                    int ringSegs = 20;
+                    float ringR = 0.65f;
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        NVGColor cRing = NanoVgEngine.argbToNvg(lineColor, NVGColor.malloc(stack));
+                        NanoVG.nvgBeginPath(vg);
+                        boolean rStarted = false;
+                        for (int s = 0; s <= ringSegs; s++) {
+                            double a = (2.0 * Math.PI * (s % ringSegs)) / ringSegs;
+                            double rx = ix + Math.cos(a) * ringR;
+                            double rz = iz + Math.sin(a) * ringR;
+                            if (wts.project(rx, iy + 0.05, rz, ptScratch2)) {
+                                if (!rStarted) {
+                                    NanoVG.nvgMoveTo(vg, ptScratch2[0], ptScratch2[1]);
+                                    rStarted = true;
+                                } else {
+                                    NanoVG.nvgLineTo(vg, ptScratch2[0], ptScratch2[1]);
+                                }
+                            } else {
+                                rStarted = false;
+                            }
+                        }
+                        NanoVG.nvgStrokeWidth(vg, 2.0f);
+                        NanoVG.nvgStrokeColor(vg, cRing);
+                        NanoVG.nvgStroke(vg);
+                    }
+                }
+
+                if (mm.pearlPredict.showTimer.isEnabled() && wts.project(ix, iy + 0.35, iz, ptScratch)) {
+                    String timeText = String.format(java.util.Locale.ROOT, "%.1fs", seconds);
+                    float tx = ptScratch[0];
+                    float ty = ptScratch[1];
+                    float badgeW = 34f;
+                    float badgeH = 16f;
+                    Render2D.drawRoundedRect(vg, tx - badgeW * 0.5f, ty - badgeH * 0.5f, badgeW, badgeH, 4f, 0xCC0F172A);
+                    Render2D.drawRoundedOutline(vg, tx - badgeW * 0.5f, ty - badgeH * 0.5f, badgeW, badgeH, 4f, 1f, lineColor);
+                    Render2D.drawTextBold(vg, timeText, tx, ty + 0.5f, 9.0f, 0xFFFFFFFF,
+                            NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_MIDDLE);
+                }
+            }
+        }
+    }
+
+    private void simulatePearl(MinecraftClient mc, Vec3d startPos, Vec3d startVel, List<Vec3d[]> pathsOut, List<double[]> impactsOut) {
+        Vec3d pos = startPos;
+        Vec3d vel = startVel;
+        List<Vec3d> pts = new ArrayList<>();
+        pts.add(pos);
+
+        double hitX = pos.x, hitY = pos.y, hitZ = pos.z;
+        int hitTick = 0;
+
+        for (int step = 0; step < 160; step++) {
+            Vec3d nextPos = pos.add(vel);
+            RaycastContext ctx = new RaycastContext(
+                    pos, nextPos,
+                    RaycastContext.ShapeType.COLLIDER,
+                    RaycastContext.FluidHandling.NONE,
+                    mc.player
+            );
+            BlockHitResult bhr = mc.world.raycast(ctx);
+            if (bhr != null && bhr.getType() == net.minecraft.util.hit.HitResult.Type.BLOCK) {
+                pts.add(bhr.getPos());
+                hitX = bhr.getPos().x;
+                hitY = bhr.getPos().y;
+                hitZ = bhr.getPos().z;
+                hitTick = step + 1;
+                break;
+            }
+
+            pts.add(nextPos);
+            pos = nextPos;
+            vel = vel.multiply(0.99).subtract(0, 0.03, 0);
+
+            if (pos.y < -64.0) {
+                hitX = pos.x;
+                hitY = pos.y;
+                hitZ = pos.z;
+                hitTick = step + 1;
+                break;
+            }
+        }
+
+        pathsOut.add(pts.toArray(new Vec3d[0]));
+        impactsOut.add(new double[]{hitX, hitY, hitZ, hitTick / 20.0});
     }
 }

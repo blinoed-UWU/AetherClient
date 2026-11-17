@@ -99,12 +99,43 @@ public final class ConfigManager {
         loadConfigFromFile(clientConfigFile, moduleManager, hudElements);
     }
 
-    public boolean loadConfigFromFile(Path targetFile, ModuleManager moduleManager, List<HudElement> hudElements) {
-        if (!Files.exists(targetFile)) return false;
-        try {
-            String raw = Files.readString(targetFile, StandardCharsets.UTF_8);
-            JsonObject root = JsonParser.parseString(raw).getAsJsonObject();
+    public JsonObject buildConfigJson(ModuleManager moduleManager, List<HudElement> hudElements) {
+        JsonObject root = new JsonObject();
+        JsonObject modsObj = new JsonObject();
+        for (Module module : moduleManager.getModules()) {
+            JsonObject modJson = new JsonObject();
+            modJson.addProperty("enabled", module.isEnabled());
+            modJson.addProperty("expanded", module.expanded);
+            JsonObject settingsJson = new JsonObject();
+            for (Setting<?> s : module.getSettings()) {
+                switch (s) {
+                    case BooleanSetting bs -> settingsJson.addProperty(bs.getId(), bs.isEnabled());
+                    case NumberSetting ns -> settingsJson.addProperty(ns.getId(), ns.getValue());
+                    case ModeSetting ms -> settingsJson.addProperty(ms.getId(), ms.getValue());
+                    case ColorSetting cs -> settingsJson.addProperty(cs.getId(), cs.getValue());
+                    case KeybindSetting ks -> settingsJson.addProperty(ks.getId(), ks.getValue());
+                    default -> {}
+                }
+            }
+            modJson.add("settings", settingsJson);
+            modsObj.add(module.getId(), modJson);
+        }
+        root.add("modules", modsObj);
 
+        JsonObject hudObj = new JsonObject();
+        for (HudElement element : hudElements) {
+            JsonObject pos = new JsonObject();
+            pos.addProperty("x", element.getNormX());
+            pos.addProperty("y", element.getNormY());
+            hudObj.add(element.getId(), pos);
+        }
+        root.add("hud", hudObj);
+        return root;
+    }
+
+    public boolean applyConfigJson(JsonObject root, ModuleManager moduleManager, List<HudElement> hudElements) {
+        if (root == null) return false;
+        try {
             if (root.has("modules") && root.get("modules").isJsonObject()) {
                 JsonObject modsObj = root.getAsJsonObject("modules");
                 for (Module module : moduleManager.getModules()) {
@@ -153,6 +184,52 @@ public final class ConfigManager {
         }
     }
 
+    public String exportConfigCode(ModuleManager moduleManager, List<HudElement> hudElements) {
+        JsonObject root = buildConfigJson(moduleManager, hudElements);
+        String json = GSON.toJson(root);
+        try {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            try (java.util.zip.GZIPOutputStream gzos = new java.util.zip.GZIPOutputStream(baos)) {
+                gzos.write(json.getBytes(StandardCharsets.UTF_8));
+            }
+            return "aether://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray());
+        } catch (Exception e) {
+            return "aether://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    public boolean importConfigCode(String rawCode, ModuleManager moduleManager, List<HudElement> hudElements) {
+        if (rawCode == null || rawCode.isBlank()) return false;
+        String code = rawCode.trim();
+        if (code.startsWith("aether://")) {
+            code = code.substring("aether://".length());
+        }
+        try {
+            byte[] bytes = java.util.Base64.getUrlDecoder().decode(code);
+            String json;
+            try (java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(bytes))) {
+                json = new String(gzis.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (Exception notGzip) {
+                json = new String(bytes, StandardCharsets.UTF_8);
+            }
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            return applyConfigJson(root, moduleManager, hudElements);
+        } catch (Exception err) {
+            return false;
+        }
+    }
+
+    public boolean loadConfigFromFile(Path targetFile, ModuleManager moduleManager, List<HudElement> hudElements) {
+        if (!Files.exists(targetFile)) return false;
+        try {
+            String raw = Files.readString(targetFile, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(raw).getAsJsonObject();
+            return applyConfigJson(root, moduleManager, hudElements);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public void saveClientConfig(ModuleManager moduleManager, List<HudElement> hudElements) {
         saveConfigToFile(clientConfigFile, moduleManager, hudElements);
     }
@@ -161,38 +238,7 @@ public final class ConfigManager {
         try {
             Path parent = targetFile.getParent();
             if (parent != null) Files.createDirectories(parent);
-            JsonObject root = new JsonObject();
-
-            JsonObject modsObj = new JsonObject();
-            for (Module module : moduleManager.getModules()) {
-                JsonObject modJson = new JsonObject();
-                modJson.addProperty("enabled", module.isEnabled());
-                modJson.addProperty("expanded", module.expanded);
-                JsonObject settingsJson = new JsonObject();
-                for (Setting<?> s : module.getSettings()) {
-                    switch (s) {
-                        case BooleanSetting bs -> settingsJson.addProperty(bs.getId(), bs.isEnabled());
-                        case NumberSetting ns -> settingsJson.addProperty(ns.getId(), ns.getValue());
-                        case ModeSetting ms -> settingsJson.addProperty(ms.getId(), ms.getValue());
-                        case ColorSetting cs -> settingsJson.addProperty(cs.getId(), cs.getValue());
-                        case KeybindSetting ks -> settingsJson.addProperty(ks.getId(), ks.getValue());
-                        default -> {}
-                    }
-                }
-                modJson.add("settings", settingsJson);
-                modsObj.add(module.getId(), modJson);
-            }
-            root.add("modules", modsObj);
-
-            JsonObject hudObj = new JsonObject();
-            for (HudElement element : hudElements) {
-                JsonObject pos = new JsonObject();
-                pos.addProperty("x", element.getNormX());
-                pos.addProperty("y", element.getNormY());
-                hudObj.add(element.getId(), pos);
-            }
-            root.add("hud", hudObj);
-
+            JsonObject root = buildConfigJson(moduleManager, hudElements);
             Path tmp = targetFile.resolveSibling(targetFile.getFileName() + ".tmp");
             Files.writeString(tmp, GSON.toJson(root), StandardCharsets.UTF_8);
             try {

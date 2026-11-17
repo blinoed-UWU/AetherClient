@@ -13,3 +13,6 @@ launcher/dist/appdir/
 launcher/dist/*.AppImage
 launcher/dist/*.exe
 launcher/dist/*.res
+launcher/dist/*.jar
+*.tar.gz
+*.zip

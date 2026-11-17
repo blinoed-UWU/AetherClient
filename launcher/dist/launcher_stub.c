@@ -137,19 +137,53 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 1;
     }
 
-    // Determine path to AetherLauncher.jar
+    // Determine path to AetherLauncher.jar with auto-detection of newer AppData version
+    wchar_t localAppData[MAX_PATH];
+    wchar_t appDataJar[MAX_PATH];
+    wchar_t companionJar[MAX_PATH];
     wchar_t jarPath[MAX_PATH];
-    _snwprintf(jarPath, MAX_PATH, L"%s\\AetherLauncher.jar", exeDir);
+    _snwprintf(companionJar, MAX_PATH, L"%s\\AetherLauncher.jar", exeDir);
 
-    // If companion jar does not exist next to exe, extract from embedded resource if present
-    if (!FileExists(jarPath)) {
-        wchar_t localAppData[MAX_PATH];
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData))) {
-            wchar_t cacheDir[MAX_PATH];
-            _snwprintf(cacheDir, MAX_PATH, L"%s\\AetherClient", localAppData);
-            CreateDirectoryW(cacheDir, NULL);
-            _snwprintf(jarPath, MAX_PATH, L"%s\\AetherClient\\AetherLauncher.jar", localAppData);
-            ExtractResourceToFile(hInstance, 101, L"EMBEDDED_JAR", jarPath);
+    int hasAppDataJar = 0;
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData))) {
+        wchar_t cacheDir[MAX_PATH];
+        _snwprintf(cacheDir, MAX_PATH, L"%s\\AetherClient", localAppData);
+        CreateDirectoryW(cacheDir, NULL);
+        _snwprintf(appDataJar, MAX_PATH, L"%s\\AetherClient\\AetherLauncher.jar", localAppData);
+        if (FileExists(appDataJar)) {
+            hasAppDataJar = 1;
+        }
+    }
+
+    if (hasAppDataJar) {
+        // Local AppData has an existing/updated version
+        if (FileExists(companionJar)) {
+            HANDLE hComp = CreateFileW(companionJar, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            HANDLE hApp = CreateFileW(appDataJar, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            FILETIME ftComp, ftApp;
+            if (hComp != INVALID_HANDLE_VALUE && hApp != INVALID_HANDLE_VALUE
+                && GetFileTime(hComp, NULL, NULL, &ftComp) && GetFileTime(hApp, NULL, NULL, &ftApp)) {
+                if (CompareFileTime(&ftComp, &ftApp) > 0) {
+                    wcsncpy(jarPath, companionJar, MAX_PATH);
+                    CopyFileW(companionJar, appDataJar, FALSE);
+                } else {
+                    wcsncpy(jarPath, appDataJar, MAX_PATH);
+                }
+            } else {
+                wcsncpy(jarPath, appDataJar, MAX_PATH);
+            }
+            if (hComp != INVALID_HANDLE_VALUE) CloseHandle(hComp);
+            if (hApp != INVALID_HANDLE_VALUE) CloseHandle(hApp);
+        } else {
+            wcsncpy(jarPath, appDataJar, MAX_PATH);
+        }
+    } else {
+        if (FileExists(companionJar)) {
+            wcsncpy(jarPath, companionJar, MAX_PATH);
+            CopyFileW(companionJar, appDataJar, FALSE);
+        } else {
+            ExtractResourceToFile(hInstance, 101, L"EMBEDDED_JAR", appDataJar);
+            wcsncpy(jarPath, appDataJar, MAX_PATH);
         }
     }
 

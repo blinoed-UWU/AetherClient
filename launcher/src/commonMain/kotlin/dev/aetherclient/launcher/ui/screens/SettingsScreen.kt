@@ -361,6 +361,183 @@ fun SettingsScreen(controller: LauncherController) {
                 }
             }
         }
+
+        // OTA Auto-Update Card
+        LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        Text(
+                            text = tr("Обновления клиента (OTA)", "Client Updates (OTA)"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = tr("Текущая версия: v1.2.0 • GitHub Releases", "Current version: v1.2.0 • GitHub Releases"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                controller.updateBanner?.let { bannerText ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = bannerText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "✕",
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { controller.dismissUpdateBanner() }
+                                    .padding(4.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { controller.checkForUpdates(silent = false) },
+                        enabled = !controller.isCheckingUpdate && !controller.isDownloadingUpdate,
+                        shape = RoundedCornerShape(100.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (controller.isCheckingUpdate) tr("Проверка...", "Checking...")
+                            else tr("Проверить обновления", "Check Updates")
+                        )
+                    }
+
+                    if (controller.updateInfo?.isAvailable == true) {
+                        OutlinedButton(
+                            onClick = { controller.downloadAndApplyUpdate() },
+                            enabled = !controller.isDownloadingUpdate,
+                            shape = RoundedCornerShape(100.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                if (controller.isDownloadingUpdate) tr("Загрузка ${(controller.updateProgress * 100).toInt()}%", "Downloading ${(controller.updateProgress * 100).toInt()}%")
+                                else tr("Обновить сейчас", "Update Now")
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Trace Cleaner & Self-Destruct Card
+        var cleanLogs by remember { mutableStateOf(true) }
+        var wipeConfigs by remember { mutableStateOf(false) }
+        var selfDestruct by remember { mutableStateOf(false) }
+        var confirmDialog by remember { mutableStateOf(false) }
+
+        LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = tr("Очистка следов и Самоуничтожение", "Trace Cleaner & Self-Destruct"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Text(
+                    text = tr("Удаление следов инжекта, логов, кэшей и параметров для успешного прохождения проверок на читы", "Wipes injection traces, logs, caches, and settings before screenshare/staff check"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                controller.traceCleanBanner?.let { bannerText ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.80f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = bannerText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "✕",
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { controller.dismissTraceCleanBanner() }
+                                    .padding(4.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+
+                CompactToggleRow(
+                    title = tr("Очистить логи, кэши и дампы", "Clean logs, caches, and dumps"),
+                    subtitle = tr("Удаляет временные файлы Java, дампы и папки логов", "Deletes temp java files, payloads, and logs"),
+                    checked = cleanLogs,
+                    onCheckedChange = { cleanLogs = it }
+                )
+
+                CompactToggleRow(
+                    title = tr("Удалить конфиги клиента (Anti-Check)", "Wipe client configs (Anti-Check)"),
+                    subtitle = tr("Безвозвратно удаляет все .json файлы настроек на диске", "Permanently deletes all config files on disk"),
+                    checked = wipeConfigs,
+                    onCheckedChange = { wipeConfigs = it }
+                )
+
+                CompactToggleRow(
+                    title = tr("Удалить лаунчер (Самоуничтожение)", "Delete launcher (Self-Destruct)"),
+                    subtitle = tr("Бесследно удаляет исполняемый файл лаунчера и закрывает процесс", "Permanently deletes launcher executable and terminates"),
+                    checked = selfDestruct,
+                    onCheckedChange = { selfDestruct = it }
+                )
+
+                OutlinedButton(
+                    onClick = {
+                        controller.cleanTraces(cleanLogs, wipeConfigs, selfDestruct)
+                    },
+                    shape = RoundedCornerShape(100.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (selfDestruct) tr("ОЧИСТИТЬ И САМОУНИЧТОЖИТЬСЯ", "CLEAN & SELF-DESTRUCT")
+                        else tr("ОЧИСТИТЬ СЛЕДЫ", "CLEAN TRACES"),
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
     }
 }
 
