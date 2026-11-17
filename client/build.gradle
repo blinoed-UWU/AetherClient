@@ -1,0 +1,69 @@
+plugins {
+    id 'java'
+    id 'checkstyle'
+    id 'jacoco'
+    id 'net.fabricmc.fabric-loom-remap' version '1.14.+'
+}
+
+group = 'dev.aetherclient'
+version = '1.0.0'
+
+base {
+    archivesName = 'aether-client'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.11"
+    mappings "net.fabricmc:yarn:1.21.11+build.4:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.18.4"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.141.2+1.21.11"
+
+    implementation project(':bridge')
+    compileOnly "org.lwjgl:lwjgl-nanovg:3.3.3"
+    checkstyle 'com.puppycrawl.tools:checkstyle:10.20.1'
+}
+
+checkstyle {
+    toolVersion = '10.20.1'
+    configFile = rootProject.file('config/checkstyle/checkstyle.xml')
+}
+
+tasks.register('checkstyleInformational', Checkstyle) {
+    group = 'verification'
+    description = 'Cosmetic style report: never fails the build.'
+    source = sourceSets.main.allJava
+    classpath = sourceSets.main.compileClasspath
+    configFile = rootProject.file('config/checkstyle/checkstyle-informational.xml')
+    ignoreFailures = true
+    maxWarnings = Integer.MAX_VALUE
+}
+
+tasks.named('checkstyleMain') { dependsOn 'checkstyleInformational' }
+
+jacoco {
+    toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}

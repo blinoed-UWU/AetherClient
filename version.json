@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "latestLauncherVersion": "1.0.0",
+  "minClientVersion": "1.0.0",
+  "downloadUrls": {
+    "windowsExe": "https://github.com/blinoed-UWU/AetherClient/releases/latest/download/AetherLauncher.exe",
+    "linuxAppImage": "https://github.com/blinoed-UWU/AetherClient/releases/latest/download/AetherLauncher.AppImage",
+    "launcherJar": "https://github.com/blinoed-UWU/AetherClient/releases/latest/download/AetherLauncher.jar",
+    "agentJar": "https://github.com/blinoed-UWU/AetherClient/releases/latest/download/aether-agent.jar"
+  },
+  "releaseNotes": "AetherClient 1.0.0 - Тройной радиальный свап, OTA авто-обновления, очистка следов, 3D визуалы, импорт/экспорт конфигов по коду"
+}

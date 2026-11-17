@@ -1,0 +1,15 @@
+.gradle/
+build/
+bin/
+*/build/
+*/bin/
+*.class
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+launcher/dist/appdir/
+launcher/dist/*.AppImage
+launcher/dist/*.exe
+launcher/dist/*.res

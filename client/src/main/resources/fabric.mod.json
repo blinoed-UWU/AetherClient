@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aetherclient",
+  "version": "1.0.0",
+  "name": "AetherClient",
+  "description": "Injected visual client for Minecraft 1.21.11",
+  "authors": ["AetherClient"],
+  "environment": "client",
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}

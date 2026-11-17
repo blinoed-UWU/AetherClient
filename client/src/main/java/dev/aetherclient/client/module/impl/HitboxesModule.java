@@ -1,0 +1,34 @@
+package dev.aetherclient.client.module.impl;
+
+import dev.aetherclient.client.module.Category;
+import dev.aetherclient.client.module.Module;
+import dev.aetherclient.client.module.setting.BooleanSetting;
+import dev.aetherclient.client.module.setting.ColorSetting;
+import dev.aetherclient.client.module.setting.NumberSetting;
+
+/**
+ * 3D Hitbox and Eye Vector visualization for entities.
+ * Supports customizable wireframe lines, translucent polygon face fill,
+ * eye vector rays, and full tracking through walls and invisibility.
+ */
+public final class HitboxesModule extends Module {
+    public final ColorSetting color = addSetting(new ColorSetting("color", "Цвет хитбокса", 0xFF7C5CFF).withEn("Box Color"));
+    public final BooleanSetting fill = addSetting(new BooleanSetting("fill", "Заливка граней", true).withEn("Fill Faces"));
+    public final NumberSetting fillAlpha = addSetting(
+            new NumberSetting("fill_alpha", "Прозрачность заливки", 0.22, 0.05, 0.80, 0.05)
+                    .<NumberSetting>withEn("Fill Alpha").visibleIf(fill::isEnabled)
+    );
+    public final NumberSetting lineWidth = addSetting(new NumberSetting("line_width", "Толщина линий", 1.8, 0.5, 4.0, 0.1).withEn("Line Width"));
+    public final BooleanSetting eyeVector = addSetting(new BooleanSetting("eye_vector", "Вектор взгляда", true).withEn("Eye Vector"));
+    public final ColorSetting eyeColor = addSetting(
+            new ColorSetting("eye_color", "Цвет вектора", 0xFFFF3366)
+                    .<ColorSetting>withEn("Eye Vector Color").visibleIf(eyeVector::isEnabled)
+    );
+    public final BooleanSetting invisible = addSetting(new BooleanSetting("invisible", "Невидимые сущности", true).withEn("Show Invisible"));
+    public final BooleanSetting playersOnly = addSetting(new BooleanSetting("players_only", "Только игроки", false).withEn("Players Only"));
+
+    public HitboxesModule() {
+        super("hitboxes", "Хитбоксы", "3D визуализация хитбоксов и векторов взгляда сущностей (включая невидимок)", Category.COMBAT);
+        setEn("Hitboxes", "3D entity bounding boxes and eye vectors with face fills and invisibility support");
+    }
+}
