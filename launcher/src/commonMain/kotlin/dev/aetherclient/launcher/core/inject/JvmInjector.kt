@@ -3,14 +3,19 @@ package dev.aetherclient.launcher.core.inject
 import com.sun.tools.attach.VirtualMachine
 import dev.aetherclient.launcher.core.model.JvmProcessInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.ConcurrentHashMap
 
 object JvmInjector {
+    private val pidLocks = ConcurrentHashMap<String, Mutex>()
+    private fun getPidLock(pid: String): Mutex = pidLocks.computeIfAbsent(pid) { Mutex() }
     private val ignoredKeywords = listOf(
         "dev.aetherclient.launcher.MainKt",
         "GradleDaemon",
@@ -119,14 +124,16 @@ object JvmInjector {
 
     suspend fun isClientActive(pid: String): Boolean = withContext(Dispatchers.IO) {
         withTimeoutOrNull(3500L) {
-            runCatching {
-                val vm = VirtualMachine.attach(pid)
-                try {
-                    "true".equals(vm.systemProperties.getProperty("aether.client.active"), ignoreCase = true)
-                } finally {
-                    runCatching { vm.detach() }
-                }
-            }.getOrDefault(false)
+            getPidLock(pid).withLock {
+                runCatching {
+                    val vm = VirtualMachine.attach(pid)
+                    try {
+                        "true".equals(vm.systemProperties.getProperty("aether.client.active"), ignoreCase = true)
+                    } finally {
+                        runCatching { vm.detach() }
+                    }
+                }.getOrDefault(false)
+            }
         } ?: false
     }
 
@@ -136,21 +143,23 @@ object JvmInjector {
         options: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(4500L) {
-            runCatching {
-                if (!Files.isRegularFile(agentJar)) {
-                    error("Файл агента не найден: ${agentJar.toAbsolutePath()}")
-                }
-                val vm = VirtualMachine.attach(pid)
-                try {
-                    val active = "true".equals(
-                        vm.systemProperties.getProperty("aether.client.active"),
-                        ignoreCase = true
-                    )
-                    if (!active) {
-                        vm.loadAgent(agentJar.toAbsolutePath().toString(), options)
+            getPidLock(pid).withLock {
+                runCatching {
+                    if (!Files.isRegularFile(agentJar)) {
+                        error("Файл агента не найден: ${agentJar.toAbsolutePath()}")
                     }
-                } finally {
-                    runCatching { vm.detach() }
+                    val vm = VirtualMachine.attach(pid)
+                    try {
+                        val active = "true".equals(
+                            vm.systemProperties.getProperty("aether.client.active"),
+                            ignoreCase = true
+                        )
+                        if (!active) {
+                            vm.loadAgent(agentJar.toAbsolutePath().toString(), options)
+                        }
+                    } finally {
+                        runCatching { vm.detach() }
+                    }
                 }
             }
         } ?: Result.failure(IllegalStateException("Превышено время ожидания подключения к JVM ($pid)"))

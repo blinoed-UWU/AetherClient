@@ -73,8 +73,17 @@ object LoaderBootstrapper {
         return target
     }
 
+    @Volatile
+    private var isExtracted = false
+
     fun extractEmbeddedAgentIfNeeded(target: Path): Boolean {
+        if (isExtracted && Files.isRegularFile(target)) return true
         return runCatching {
+            if (Files.isRegularFile(target) && Files.size(target) > 100_000L) {
+                isExtracted = true
+                return true
+            }
+
             val resourceStream = LoaderBootstrapper::class.java.getResourceAsStream("/payload/aether-agent.jar")
                 ?: LoaderBootstrapper::class.java.classLoader.getResourceAsStream("payload/aether-agent.jar")
                 ?: Thread.currentThread().contextClassLoader?.getResourceAsStream("payload/aether-agent.jar")
@@ -89,6 +98,7 @@ object LoaderBootstrapper {
                 if (bytes.isEmpty()) return false
 
                 if (Files.isRegularFile(target) && Files.size(target) == bytes.size.toLong()) {
+                    isExtracted = true
                     return true
                 }
 

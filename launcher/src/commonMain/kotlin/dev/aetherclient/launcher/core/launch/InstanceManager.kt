@@ -35,28 +35,35 @@ object InstanceManager {
 
     private fun defaultSources(): List<LauncherSource> {
         val home = Paths.get(System.getProperty("user.home"))
+        val appDataEnv = System.getenv("APPDATA")
+        val appData = if (!appDataEnv.isNullOrBlank()) Paths.get(appDataEnv) else home.resolve("AppData/Roaming")
+
         return listOf(
             LauncherSource(
                 name = "FreesmLauncher",
-                binaryNames = listOf("freesmlauncher"),
-                instanceRoots = listOf(
+                binaryNames = listOf("freesmlauncher", "freesmlauncher.exe"),
+                instanceRoots = listOfNotNull(
                     home.resolve(".local/share/FreesmLauncher/instances"),
-                    home.resolve(".var/app/org.freesmlauncher.FreesmLauncher/data/FreesmLauncher/instances")
+                    home.resolve(".var/app/org.freesmlauncher.FreesmLauncher/data/FreesmLauncher/instances"),
+                    appData.resolve("FreesmLauncher/instances")
                 )
             ),
             LauncherSource(
                 name = "PrismLauncher",
-                binaryNames = listOf("prismlauncher"),
-                instanceRoots = listOf(
+                binaryNames = listOf("prismlauncher", "prismlauncher.exe"),
+                instanceRoots = listOfNotNull(
                     home.resolve(".local/share/PrismLauncher/instances"),
-                    home.resolve(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances")
+                    home.resolve(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
+                    home.resolve("Library/Application Support/PrismLauncher/instances"),
+                    appData.resolve("PrismLauncher/instances")
                 )
             ),
             LauncherSource(
                 name = "MultiMC",
-                binaryNames = listOf("multimc"),
-                instanceRoots = listOf(
-                    home.resolve(".local/share/multimc/instances")
+                binaryNames = listOf("multimc", "multimc.exe"),
+                instanceRoots = listOfNotNull(
+                    home.resolve(".local/share/multimc/instances"),
+                    appData.resolve("MultiMC/instances")
                 )
             )
         )
@@ -162,7 +169,7 @@ object InstanceManager {
         }
 
     internal fun patchInstanceCfgForAgent(cfgText: String, agentJar: Path): String {
-        val absAgent = agentJar.toAbsolutePath().normalize().toString()
+        val absAgent = agentJar.toAbsolutePath().normalize().toString().replace('\\', '/')
         val agentFlag = if (absAgent.contains(' ')) "\"-javaagent:$absAgent\"" else "-javaagent:$absAgent"
 
         val normalized = cfgText.replace("\r\n", "\n")
@@ -203,7 +210,10 @@ object InstanceManager {
                 jvmArgsLineIdx = i
                 existingJvmArgs = trimmed.substringAfter("JvmArgs=").trim()
                 if (existingJvmArgs.length >= 2 && existingJvmArgs.startsWith('"') && existingJvmArgs.endsWith('"')) {
-                    existingJvmArgs = existingJvmArgs.substring(1, existingJvmArgs.length - 1).trim()
+                    val inner = existingJvmArgs.substring(1, existingJvmArgs.length - 1)
+                    if (!inner.contains('"')) {
+                        existingJvmArgs = inner.trim()
+                    }
                 }
             }
         }

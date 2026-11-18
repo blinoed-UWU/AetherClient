@@ -288,7 +288,7 @@ fun InteractiveBannerCarousel(
                 }
 
                 AnimatedVisibility(
-                    visible = isHovered || true,
+                    visible = isHovered,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {

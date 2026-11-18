@@ -166,14 +166,10 @@ class LauncherController {
 
                 val target = selectedProcess
                 val currentInject = injectState
-                if (currentInject is InjectState.Success && currentInject.pid !in livePids) {
-                    injectState = InjectState.Idle
-                } else if (
-                    currentInject is InjectState.Success &&
-                    currentInject.pid == target?.pid &&
-                    System.currentTimeMillis() - lastInjectSuccessMs >= 2500L
-                ) {
-                    if (!JvmInjector.isClientActive(currentInject.pid)) {
+                if (currentInject is InjectState.Success) {
+                    val pidNum = currentInject.pid.toLongOrNull() ?: -1L
+                    val isAlive = currentInject.pid in livePids || (pidNum > 0 && ProcessHandle.of(pidNum).map { it.isAlive }.orElse(false))
+                    if (!isAlive) {
                         injectState = InjectState.Idle
                     }
                 } else if (
@@ -274,6 +270,8 @@ class LauncherController {
                         delay(900)
                         minimizeRequested = true
                     }
+                    delay(3500)
+                    launchState = LaunchState.Idle
                 },
                 onFailure = { err ->
                     launchState = LaunchState.Error(err.message ?: "Не удалось запустить сборку с Aether.")
@@ -471,8 +469,10 @@ class LauncherController {
                     if (Files.exists(tmpDir)) {
                         runCatching {
                             Files.list(tmpDir).use { stream ->
-                                stream.filter { it.fileName.toString().startsWith("aether") || it.fileName.toString().startsWith(".attach_pid") }
-                                    .forEach { runCatching { Files.deleteIfExists(it) } }
+                                stream.filter { 
+                                    val name = it.fileName.toString()
+                                    name.startsWith("aether") || name.startsWith(".java_pid") || name.startsWith(".attach_pid")
+                                }.forEach { runCatching { Files.deleteIfExists(it) } }
                             }
                         }
                     }

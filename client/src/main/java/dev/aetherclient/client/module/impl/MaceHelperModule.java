@@ -12,6 +12,8 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.Hand;
 import org.lwjgl.glfw.GLFW;
 
@@ -129,6 +131,11 @@ public final class MaceHelperModule extends Module {
         float savedPitch = mc.player.getPitch();
         if (windChargePitch.isEnabled()) {
             mc.player.setPitch(89.5f);
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
+                        mc.player.getYaw(), 89.5f, mc.player.isOnGround(), mc.player.horizontalCollision
+                ));
+            }
         }
 
         if (hasOffhand) {
@@ -136,12 +143,23 @@ public final class MaceHelperModule extends Module {
         } else {
             int oldSlot = inv.getSelectedSlot();
             inv.setSelectedSlot(hotbarSlot);
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(hotbarSlot));
+            }
             mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
             inv.setSelectedSlot(oldSlot);
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(oldSlot));
+            }
         }
 
         if (windChargePitch.isEnabled()) {
             mc.player.setPitch(savedPitch);
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
+                        mc.player.getYaw(), savedPitch, mc.player.isOnGround(), mc.player.horizontalCollision
+                ));
+            }
         }
 
         if (playSound.isEnabled()) {
