@@ -43,6 +43,12 @@ public final class DiscordIpcClient implements AutoCloseable {
         return t;
     });
 
+    public static void shutdownExecutor() {
+        try {
+            IO_EXECUTOR.shutdownNow();
+        } catch (Throwable ignored) {}
+    }
+
     public DiscordIpcClient() {
         this(DEFAULT_CLIENT_ID);
     }

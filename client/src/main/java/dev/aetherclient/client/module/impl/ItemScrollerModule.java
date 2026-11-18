@@ -64,7 +64,7 @@ public final class ItemScrollerModule extends Module {
                 try {
                     for (int i = 0; i < totalSlots; i++) {
                         Slot s = handler.getSlot(i);
-                        if (s != null && s.hasStack()) {
+                        if (s != null && s.hasStack() && s.inventory == slot.inventory) {
                             ItemStack st = s.getStack();
                             if (st.getItem() == targetItem) {
                                 final int currentSlotIndex = i;

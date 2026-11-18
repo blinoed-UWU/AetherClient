@@ -743,6 +743,9 @@ public final class AetherClientMain {
                 dev.aetherclient.client.render.HitColorApplier.restore(mc);
             } catch (Throwable ignored) {}
             try {
+                dev.aetherclient.client.discord.DiscordIpcClient.shutdownExecutor();
+            } catch (Throwable ignored) {}
+            try {
                 soundEngine.destroy();
             } catch (Throwable ignored) {}
             try {

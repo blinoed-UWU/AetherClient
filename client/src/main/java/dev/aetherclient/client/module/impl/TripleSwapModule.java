@@ -225,7 +225,7 @@ public final class TripleSwapModule extends Module {
             } else {
                 mc.interactionManager.clickSlot(0, targetSlot, inv.getSelectedSlot(), SlotActionType.SWAP, mc.player);
             }
-            if (mc.getNetworkHandler() != null) {
+            if (mc.getNetworkHandler() != null && mc.currentScreen != null) {
                 mc.getNetworkHandler().sendPacket(new CloseHandledScreenC2SPacket(0));
             }
         }

@@ -71,12 +71,26 @@ public final class InventoryArrangerModule extends Module {
         ToastManager.get().push("Раскладка", "Текущий шаблон инвентаря сохранен", 0xFF10B981);
     }
 
+    private final java.util.concurrent.atomic.AtomicBoolean isArranging = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     public void executeArrange() {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null || mc.player == null || mc.interactionManager == null) return;
+        if (!isArranging.compareAndSet(false, true)) return;
 
+        new Thread(() -> {
+            try {
+                doArrangeAsync(mc);
+            } finally {
+                isArranging.set(false);
+            }
+        }, "Aether-InventoryArranger").start();
+    }
+
+    private void doArrangeAsync(MinecraftClient mc) {
+        if (mc.player == null || mc.interactionManager == null) return;
         PlayerInventory inv = mc.player.getInventory();
-        mc.player.setSprinting(false);
+        mc.execute(() -> mc.player.setSprinting(false));
 
         Map<Integer, Item> targetLayout = resolveTargetLayout();
         int movedCount = 0;
@@ -92,7 +106,7 @@ public final class InventoryArrangerModule extends Module {
                     int sourceSlot = findItemSlot(inv, desiredItem);
                     if (sourceSlot != -1) {
                         int screenSlot = sourceSlot < 9 ? 36 + sourceSlot : sourceSlot;
-                        mc.interactionManager.clickSlot(0, screenSlot, 40, SlotActionType.SWAP, mc.player);
+                        mc.execute(() -> mc.interactionManager.clickSlot(0, screenSlot, 40, SlotActionType.SWAP, mc.player));
                         movedCount++;
                         waitDelay();
                     }
@@ -103,7 +117,7 @@ public final class InventoryArrangerModule extends Module {
                     int sourceSlot = findItemSlot(inv, desiredItem);
                     if (sourceSlot != -1 && sourceSlot != slot) {
                         int screenSlot = sourceSlot < 9 ? 36 + sourceSlot : sourceSlot;
-                        mc.interactionManager.clickSlot(0, screenSlot, slot, SlotActionType.SWAP, mc.player);
+                        mc.execute(() -> mc.interactionManager.clickSlot(0, screenSlot, slot, SlotActionType.SWAP, mc.player));
                         movedCount++;
                         waitDelay();
                     }
@@ -125,7 +139,7 @@ public final class InventoryArrangerModule extends Module {
                         int emptySlot = findEmptyStorageSlot(inv);
                         if (emptySlot != -1) {
                             int screenFrom = 36 + i;
-                            mc.interactionManager.clickSlot(0, screenFrom, 0, SlotActionType.QUICK_MOVE, mc.player);
+                            mc.execute(() -> mc.interactionManager.clickSlot(0, screenFrom, 0, SlotActionType.QUICK_MOVE, mc.player));
                             movedCount++;
                             waitDelay();
                         }
@@ -134,12 +148,12 @@ public final class InventoryArrangerModule extends Module {
             }
         }
 
-        if (mc.getNetworkHandler() != null) {
-            mc.getNetworkHandler().sendPacket(new CloseHandledScreenC2SPacket(0));
+        if (mc.getNetworkHandler() != null && mc.currentScreen != null) {
+            mc.execute(() -> mc.getNetworkHandler().sendPacket(new CloseHandledScreenC2SPacket(0)));
         }
 
         if (playSound.isEnabled()) {
-            SoundEngine.get().playClick(mc, true, 1.2f);
+            mc.execute(() -> SoundEngine.get().playClick(mc, true, 1.2f));
         }
         if (showToast.isEnabled()) {
             if (movedCount > 0) {
@@ -181,7 +195,7 @@ public final class InventoryArrangerModule extends Module {
             int found = findItemSlot(inv, p);
             if (found != -1) {
                 int screenSlot = found < 9 ? 36 + found : found;
-                mc.interactionManager.clickSlot(0, screenSlot, 0, SlotActionType.QUICK_MOVE, mc.player);
+                mc.execute(() -> mc.interactionManager.clickSlot(0, screenSlot, 0, SlotActionType.QUICK_MOVE, mc.player));
                 waitDelay();
                 return 1;
             }

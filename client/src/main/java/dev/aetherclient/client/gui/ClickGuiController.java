@@ -329,7 +329,7 @@ public final class ClickGuiController {
             float bestSmartY = Float.NaN;
             int bestSmartYCand = -1;
             for (HudElement other : hudElements) {
-                if (other == draggingHud) continue;
+                if (other == draggingHud || !other.isActive()) continue;
                 float ox = other.getPixelX(hudScreenW);
                 float oy = other.getPixelY(hudScreenH);
                 float ow = other.getScaledWidth();
@@ -403,6 +403,7 @@ public final class ClickGuiController {
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             for (int i = hudElements.size() - 1; i >= 0; i--) {
                 HudElement el = hudElements.get(i);
+                if (!el.isActive()) continue;
                 float ex = el.getPixelX(hudScreenW);
                 float ey = el.getPixelY(hudScreenH);
                 if (Render2D.isHovered(hudMouseX, hudMouseY, ex - 4f, ey - 4f, el.getScaledWidth() + 8f, el.getScaledHeight() + 8f)) {

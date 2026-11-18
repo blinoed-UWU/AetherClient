@@ -223,8 +223,18 @@ public final class SoundEngine {
     public synchronized void destroy() {
         if (!initialized && !openAlAvailable) return;
         try {
-            if (boundContext != 0L && ALC10.alcGetCurrentContext() == boundContext) {
-                cleanupAlHandles();
+            if (boundContext != 0L) {
+                long current = ALC10.alcGetCurrentContext();
+                if (current != boundContext) {
+                    ALC10.alcMakeContextCurrent(boundContext);
+                }
+                try {
+                    cleanupAlHandles();
+                } finally {
+                    if (current != boundContext && current != 0L) {
+                        ALC10.alcMakeContextCurrent(current);
+                    }
+                }
             } else {
                 resetHandlesOnly();
             }

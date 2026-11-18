@@ -63,7 +63,7 @@ public final class NanoVgEngine {
     }
 
     public void updateBlurTexture(int sourceFbo, int fbWidth, int fbHeight, float blurRadius) {
-        if (blurRadius <= 0.1f) {
+        if (vg == 0L || fbWidth <= 0 || fbHeight <= 0 || blurRadius <= 0.1f) {
             clearBlurTexture();
             return;
         }

@@ -319,12 +319,14 @@ public final class VisualRenderer {
             for (BreadcrumbPoint b : breadcrumbPoints) breadcrumbPool.release(b);
             for (HitSpark s : hitSparks) hitSparkPool.release(s);
             for (FloatingDamage fd : floatingDamages) floatingDamagePool.release(fd);
+            for (AmbientParticle p : ambientParticles) particlePool.release(p);
             jumpCircles.clear();
             trailPoints.clear();
             breadcrumbPoints.clear();
             hitSparks.clear();
             hitTints.clear();
             floatingDamages.clear();
+            ambientParticles.clear();
             trackedHealth.clear();
             activeTarget = null;
             hasLastTrail = false;
@@ -2943,7 +2945,7 @@ public final class VisualRenderer {
                 : mm.chinaHat.color.getValue();
 
         int segments = Math.max(12, Math.min(48, (int) mm.chinaHat.segments.asFloat()));
-        boolean isTwoLayers = "2 слоя".equals(mm.chinaHat.layers.getValue());
+        boolean isTwoLayers = mm.chinaHat.layers.isEnabled();
         int layersCount = isTwoLayers ? 2 : 1;
 
         for (int layer = 0; layer < layersCount; layer++) {

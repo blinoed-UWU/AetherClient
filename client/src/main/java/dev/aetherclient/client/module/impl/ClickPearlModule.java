@@ -85,15 +85,15 @@ public final class ClickPearlModule extends Module {
             case SELECT_SLOT -> {
                 // Ensure item is selected in main hand
                 if (mc.player.getMainHandStack().getItem() == Items.ENDER_PEARL || ticksInPhase >= 1) {
-                    if (mc.player.networkHandler != null) {
+                    if (mc.interactionManager != null) {
+                        mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+                    } else if (mc.player.networkHandler != null) {
                         mc.player.networkHandler.sendPacket(new PlayerInteractItemC2SPacket(
                                 Hand.MAIN_HAND,
                                 0,
                                 mc.player.getYaw(),
                                 mc.player.getPitch()
                         ));
-                    } else if (mc.interactionManager != null) {
-                        mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
                     }
                     mc.player.swingHand(Hand.MAIN_HAND);
                     phase = swapBack.isEnabled() && pearlSlot != savedSlot ? Phase.SWAP_BACK : Phase.IDLE;

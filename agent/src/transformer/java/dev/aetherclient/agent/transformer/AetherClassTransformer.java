@@ -337,7 +337,7 @@ public final class AetherClassTransformer implements ClassFileTransformer {
             super.visitInsn(FCMPL);
             super.visitJumpInsn(IFEQ, cont);
             super.visitVarInsn(ALOAD, 2); // matrices (class_4587)
-            super.visitFieldInsn(GETSTATIC, "net/minecraft/class_7833", "field_40714", "Lnet/minecraft/class_7833;");
+            super.visitFieldInsn(GETSTATIC, "net/minecraft/class_7833", "field_40716", "Lnet/minecraft/class_7833;");
             super.visitMethodInsn(INVOKESTATIC, BRIDGE, "getItemSpinAngle", "()F", false);
             super.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/class_7833", "rotation", "(F)Lorg/joml/Quaternionf;", true);
             super.visitMethodInsn(INVOKEVIRTUAL, "net/minecraft/class_4587", "method_22907", "(Lorg/joml/Quaternionfc;)V", false);

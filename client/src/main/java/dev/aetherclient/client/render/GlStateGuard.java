@@ -50,6 +50,9 @@ public final class GlStateGuard {
     private boolean cullFace;
     private boolean scissorTest;
     private boolean stencilTest;
+    private final int[] scissorBox = new int[4];
+    private boolean depthMask;
+    private int stencilMask;
     private final int[] polygonMode = new int[2];
     private final boolean[] colorMask = new boolean[4];
 
@@ -85,6 +88,13 @@ public final class GlStateGuard {
             viewport[2] = vp.get(2);
             viewport[3] = vp.get(3);
 
+            IntBuffer sb = stack.mallocInt(4);
+            GL11.glGetIntegerv(GL11.GL_SCISSOR_BOX, sb);
+            scissorBox[0] = sb.get(0);
+            scissorBox[1] = sb.get(1);
+            scissorBox[2] = sb.get(2);
+            scissorBox[3] = sb.get(3);
+
             IntBuffer pm = stack.mallocInt(2);
             GL11.glGetIntegerv(GL11.GL_POLYGON_MODE, pm);
             polygonMode[0] = pm.get(0);
@@ -105,9 +115,11 @@ public final class GlStateGuard {
         blendDstAlpha = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
 
         depthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        depthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
         cullFace = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         scissorTest = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
         stencilTest = GL11.glIsEnabled(GL11.GL_STENCIL_TEST);
+        stencilMask = GL11.glGetInteger(GL11.GL_STENCIL_WRITEMASK);
     }
 
     /**
@@ -162,8 +174,11 @@ public final class GlStateGuard {
         GL14.glBlendFuncSeparate(blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha);
 
         if (depthTest) GL11.glEnable(GL11.GL_DEPTH_TEST); else GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(depthMask);
         if (cullFace) GL11.glEnable(GL11.GL_CULL_FACE); else GL11.glDisable(GL11.GL_CULL_FACE);
         if (scissorTest) GL11.glEnable(GL11.GL_SCISSOR_TEST); else GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
         if (stencilTest) GL11.glEnable(GL11.GL_STENCIL_TEST); else GL11.glDisable(GL11.GL_STENCIL_TEST);
+        GL11.glStencilMask(stencilMask);
     }
 }
