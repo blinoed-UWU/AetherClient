@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,6 +64,7 @@ import java.nio.file.Paths
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(controller: LauncherController) {
+    var confirmReset by remember { mutableStateOf(false) }
     val settings = controller.settings
     val isEn = settings.language.equals("EN", ignoreCase = true)
     fun tr(ru: String, en: String): String = if (isEn) en else ru
@@ -350,7 +352,7 @@ fun SettingsScreen(controller: LauncherController) {
                     }
 
                     OutlinedButton(
-                        onClick = { controller.resetClientConfig() },
+                        onClick = { confirmReset = true },
                         shape = RoundedCornerShape(100.dp),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -360,6 +362,30 @@ fun SettingsScreen(controller: LauncherController) {
                     }
                 }
             }
+        }
+
+        if (confirmReset) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmReset = false },
+                title = { Text(tr("Сбросить конфиг?", "Reset config?")) },
+                text = {
+                    Text(tr(
+                        "Все .json конфиги клиента будут удалены и восстановлены заводские настройки. Действие необратимо.",
+                        "All client .json configs will be deleted and factory defaults restored. This cannot be undone."
+                    ))
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmReset = false
+                        controller.resetClientConfig()
+                    }) { Text(tr("Сбросить", "Reset"), color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmReset = false }) {
+                        Text(tr("Отмена", "Cancel"))
+                    }
+                }
+            )
         }
 
         // OTA Auto-Update Card

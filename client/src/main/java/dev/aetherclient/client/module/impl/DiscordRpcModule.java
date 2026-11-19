@@ -25,8 +25,12 @@ public final class DiscordRpcModule extends Module {
         setEn("Discord RPC", "Rich Presence status in your Discord profile");
     }
 
+    /** Guards against queued tasks re-creating the IPC client after disable(). */
+    private volatile boolean disabled = true;
+
     @Override
     protected void onEnable() {
+        disabled = false;
         initExecutor();
         lastUpdateMs = 0;
         rpcExecutor.execute(() -> {
@@ -41,14 +45,18 @@ public final class DiscordRpcModule extends Module {
 
     @Override
     protected void onDisable() {
+        disabled = true;
         if (rpcExecutor != null) {
-            rpcExecutor.execute(() -> {
+            java.util.concurrent.ExecutorService exec = rpcExecutor;
+            exec.execute(() -> {
                 if (client != null) {
                     client.close();
                     client = null;
                 }
             });
-            rpcExecutor.shutdown();
+            // shutdownNow: pending presence ticks must not run after close and
+            // recreate the IPC client (they guard on 'disabled' anyway).
+            exec.shutdownNow();
             rpcExecutor = null;
         }
     }
@@ -65,7 +73,7 @@ public final class DiscordRpcModule extends Module {
 
     @Override
     public void onTick(MinecraftClient mc) {
-        if (!isEnabled()) return;
+        if (!isEnabled() || disabled) return;
         long now = System.currentTimeMillis();
         if (now - lastUpdateMs < 4000) return; // update every 4s
         lastUpdateMs = now;

@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.get
+import io.ktor.http.isSuccess
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
@@ -61,6 +62,9 @@ object HttpClientFactory {
         val tmpFile = target.resolveSibling("${target.fileName}.part")
 
         val response = client.get(url)
+        if (!response.status.isSuccess()) {
+            error("Download failed with HTTP ${response.status} for $url")
+        }
         val channel = response.bodyAsChannel()
         Files.newOutputStream(tmpFile).use { out ->
             channel.copyTo(out)

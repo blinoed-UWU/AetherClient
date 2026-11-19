@@ -18,6 +18,11 @@ public final class ArrayListHud extends HudElement {
     private final ModuleManager moduleManager;
     private final HudModule hudModule;
 
+    // Per-frame scratch state for ArrayListHud: allocated once, reused every frame.
+    private final java.util.List<Module> scratchItems = new ArrayList<>();
+    private final java.util.List<Module> sortedScratch = new ArrayList<>();
+    private float[] scratchWidths = new float[16];
+
     public ArrayListHud(ModuleManager moduleManager, HudModule hudModule) {
         super("arraylist", "Список модулей", 0.985f, 0.02f);
         setTitleEn("Module List");
@@ -65,7 +70,9 @@ public final class ArrayListHud extends HudElement {
             float x, float y, float screenW, float screenH, boolean editMode, float dt
     ) {
         long vg = engine.handle();
-        List<Module> items = new ArrayList<>();
+        // Reused scratch list: no per-frame ArrayList allocation.
+        List<Module> items = this.scratchItems;
+        items.clear();
         for (Module m : moduleManager.getModules()) {
             if (m == moduleManager.clickGui) continue;
             float target = m.isEnabled() ? 1f : 0f;
@@ -81,15 +88,29 @@ public final class ArrayListHud extends HudElement {
             return;
         }
 
-        items.sort(Comparator.<Module>comparingDouble(m -> measureModuleWidth(vg, m)).reversed());
+        // Measure once per module into a parallel array and sort indices,
+        // instead of O(n log n) NanoVG text measures per frame via a comparator.
+        int n = items.size();
+        if (scratchWidths.length < n) scratchWidths = new float[n * 2];
+        Integer[] order = new Integer[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+            scratchWidths[i] = measureModuleWidth(vg, items.get(i));
+        }
+        java.util.Arrays.sort(order, (a, b) -> Float.compare(scratchWidths[b], scratchWidths[a]));
+        List<Module> sorted = this.sortedScratch;
+        sorted.clear();
+        for (int i = 0; i < n; i++) sorted.add(items.get(order[i]));
+        items.clear();
+        items.addAll(sorted);
 
         float maxW = 0f;
         float totalH = 0f;
         float rowH = 19f;
         float rowGap = 2.5f;
-        for (Module m : items) {
-            maxW = Math.max(maxW, measureModuleWidth(vg, m));
-            float anim = editMode ? Math.max(0.75f, m.toggleAnim) : m.toggleAnim;
+        for (int i = 0; i < n; i++) {
+            maxW = Math.max(maxW, scratchWidths[i]);
+            float anim = editMode ? Math.max(0.75f, items.get(i).toggleAnim) : items.get(i).toggleAnim;
             totalH += (rowH + rowGap) * anim;
         }
         this.width = Math.max(84f, maxW);

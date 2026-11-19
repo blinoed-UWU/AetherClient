@@ -235,11 +235,11 @@ public final class ConfigManager {
     }
 
     public boolean saveConfigToFile(Path targetFile, ModuleManager moduleManager, List<HudElement> hudElements) {
+        Path tmp = targetFile.resolveSibling(targetFile.getFileName() + ".tmp");
         try {
             Path parent = targetFile.getParent();
             if (parent != null) Files.createDirectories(parent);
             JsonObject root = buildConfigJson(moduleManager, hudElements);
-            Path tmp = targetFile.resolveSibling(targetFile.getFileName() + ".tmp");
             Files.writeString(tmp, GSON.toJson(root), StandardCharsets.UTF_8);
             try {
                 Files.move(tmp, targetFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -248,6 +248,12 @@ public final class ConfigManager {
             }
             return true;
         } catch (IOException ignored) {
+            // Best-effort cleanup: a leftover .tmp would otherwise sit next to
+            // the config forever after a failed move.
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException ignored2) {
+            }
             return false;
         }
     }

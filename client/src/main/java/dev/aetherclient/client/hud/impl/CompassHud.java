@@ -94,10 +94,17 @@ public final class CompassHud extends HudElement {
         };
     }
 
+    // Cached biome label: reflection chain only re-runs when the player
+    // enters a different block, instead of 4 lookups per frame.
+    private static BlockPos lastBiomePos;
+    private static String cachedBiomeLabel = "";
+
     private static String biomeLabel(MinecraftClient mc) {
         try {
             if (mc.world == null || mc.player == null) return "";
             BlockPos pos = mc.player.getBlockPos();
+            if (pos.equals(lastBiomePos)) return cachedBiomeLabel;
+            lastBiomePos = pos;
             Object entry = mc.world.getBiome(pos);
             if (entry == null) return "";
             Method getKey = entry.getClass().getMethod("getKey");
@@ -106,7 +113,9 @@ public final class CompassHud extends HudElement {
             Object id = key.getClass().getMethod("getValue").invoke(key);
             String path = (String) id.getClass().getMethod("getPath").invoke(id);
             if (path == null || path.isEmpty()) return "";
-            return path.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + path.substring(1);
+            String label = path.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + path.substring(1);
+            cachedBiomeLabel = label;
+            return label;
         } catch (Throwable ignored) {
             return "";
         }

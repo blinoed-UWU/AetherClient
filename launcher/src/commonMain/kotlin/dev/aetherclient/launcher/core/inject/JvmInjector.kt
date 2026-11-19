@@ -15,7 +15,18 @@ import java.util.concurrent.ConcurrentHashMap
 
 object JvmInjector {
     private val pidLocks = ConcurrentHashMap<String, Mutex>()
-    private fun getPidLock(pid: String): Mutex = pidLocks.computeIfAbsent(pid) { Mutex() }
+    private fun isAlive(pid: String): Boolean =
+        pid.toLongOrNull()?.let { ProcessHandle.of(it).map { h -> h.isAlive }.orElse(false) } ?: false
+
+    private fun getPidLock(pid: String): Mutex {
+        val lock = pidLocks.computeIfAbsent(pid) { Mutex() }
+        // Prune mutexes of dead processes so the map cannot grow unbounded
+        // over a long launcher session.
+        if (pidLocks.size > 64) {
+            pidLocks.entries.removeIf { (p, _) -> runCatching { !isAlive(p) }.getOrDefault(true) }
+        }
+        return lock
+    }
     private val ignoredKeywords = listOf(
         "dev.aetherclient.launcher.MainKt",
         "GradleDaemon",

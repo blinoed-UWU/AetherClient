@@ -76,7 +76,27 @@ public final class SoundEngine {
             return;
         }
         if (initialized) {
-            resetHandlesOnly();
+            // A different but still-alive context is current: the old handles
+            // belong to boundContext, so make it current and actually delete
+            // them (resetHandlesOnly() would leak every buffer/source).
+            long previousCurrent = currentCtx;
+            boolean restored = false;
+            if (boundContext != 0L && boundContext != previousCurrent) {
+                try {
+                    if (ALC10.alcMakeContextCurrent(boundContext)) {
+                        cleanupAlHandles();
+                        restored = true;
+                    }
+                } catch (Throwable ignored) {}
+                try {
+                    if (restored && previousCurrent != 0L) {
+                        ALC10.alcMakeContextCurrent(previousCurrent);
+                    }
+                } catch (Throwable ignored) {}
+            }
+            if (!restored) {
+                resetHandlesOnly();
+            }
         }
         try {
             // Drain any stale pre-existing AL error before creating our buffers/sources

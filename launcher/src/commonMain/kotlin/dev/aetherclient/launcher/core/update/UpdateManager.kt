@@ -25,7 +25,10 @@ object UpdateManager {
 
     suspend fun checkUpdate(): Result<UpdateInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            val json = URI.create(VERSION_URL).toURL().openStream().bufferedReader().use { it.readText() }
+            val conn = URI.create(VERSION_URL).toURL().openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            val json = conn.inputStream.bufferedReader().use { it.readText() }
             val verMatcher = Pattern.compile("\"version\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
             val notesMatcher = Pattern.compile("\"releaseNotes\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
             val jarMatcher = Pattern.compile("\"launcherJar\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
@@ -52,23 +55,46 @@ object UpdateManager {
             connection.readTimeout = 15000
             val totalBytes = connection.contentLengthLong
 
-            connection.getInputStream().use { input ->
-                Files.newOutputStream(tempJar).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalRead = 0L
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalRead += bytesRead
-                        if (totalBytes > 0) {
-                            onProgress(totalRead.toFloat() / totalBytes.toFloat())
+            var http: java.net.HttpURLConnection? = null
+            try {
+                http = connection as java.net.HttpURLConnection
+                val code = http.responseCode
+                if (code !in 200..299) {
+                    error("Update download failed with HTTP $code")
+                }
+                val lastProgressEmit = java.util.concurrent.atomic.AtomicLong(0L)
+                http.inputStream.use { input ->
+                    Files.newOutputStream(tempJar).use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalRead = 0L
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalRead += bytesRead
+                            if (totalBytes > 0) {
+                                // Throttle progress to ~20 Hz so Compose state isn't
+                                // invalidated for every 8 KiB chunk.
+                                val now = System.nanoTime()
+                                if (now - lastProgressEmit.get() > 50_000_000L && lastProgressEmit.compareAndSet(
+                                        lastProgressEmit.get(), now
+                                    )
+                                ) {
+                                    onProgress((totalRead.toFloat() / totalBytes).coerceIn(0f, 1f))
+                                }
+                            }
                         }
+                        onProgress(1f)
                     }
                 }
-            }
 
-            Files.move(tempJar, targetJar, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            targetJar
+                Files.move(tempJar, targetJar, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                targetJar
+            } catch (t: Throwable) {
+                Files.deleteIfExists(tempJar)
+                throw t
+            } finally {
+                http?.disconnect()
+            }
         }
     }
 

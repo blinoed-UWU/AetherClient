@@ -1,0 +1,722 @@
+diff --git a/client/src/main/java/dev/aetherclient/client/audio/SoundEngine.java b/client/src/main/java/dev/aetherclient/client/audio/SoundEngine.java
+index 1b65d95..2ba3cdc 100644
+--- a/client/src/main/java/dev/aetherclient/client/audio/SoundEngine.java
++++ b/client/src/main/java/dev/aetherclient/client/audio/SoundEngine.java
+@@ -76,7 +76,27 @@ public final class SoundEngine {
+             return;
+         }
+         if (initialized) {
+-            resetHandlesOnly();
++            // A different but still-alive context is current: the old handles
++            // belong to boundContext, so make it current and actually delete
++            // them (resetHandlesOnly() would leak every buffer/source).
++            long previousCurrent = currentCtx;
++            boolean restored = false;
++            if (boundContext != 0L && boundContext != previousCurrent) {
++                try {
++                    if (ALC10.alcMakeContextCurrent(boundContext)) {
++                        cleanupAlHandles();
++                        restored = true;
++                    }
++                } catch (Throwable ignored) {}
++                try {
++                    if (restored && previousCurrent != 0L) {
++                        ALC10.alcMakeContextCurrent(previousCurrent);
++                    }
++                } catch (Throwable ignored) {}
++            }
++            if (!restored) {
++                resetHandlesOnly();
++            }
+         }
+         try {
+             // Drain any stale pre-existing AL error before creating our buffers/sources
+diff --git a/client/src/main/java/dev/aetherclient/client/config/ConfigManager.java b/client/src/main/java/dev/aetherclient/client/config/ConfigManager.java
+index 97d63f4..7babc21 100644
+--- a/client/src/main/java/dev/aetherclient/client/config/ConfigManager.java
++++ b/client/src/main/java/dev/aetherclient/client/config/ConfigManager.java
+@@ -235,11 +235,11 @@ public final class ConfigManager {
+     }
+ 
+     public boolean saveConfigToFile(Path targetFile, ModuleManager moduleManager, List<HudElement> hudElements) {
++        Path tmp = targetFile.resolveSibling(targetFile.getFileName() + ".tmp");
+         try {
+             Path parent = targetFile.getParent();
+             if (parent != null) Files.createDirectories(parent);
+             JsonObject root = buildConfigJson(moduleManager, hudElements);
+-            Path tmp = targetFile.resolveSibling(targetFile.getFileName() + ".tmp");
+             Files.writeString(tmp, GSON.toJson(root), StandardCharsets.UTF_8);
+             try {
+                 Files.move(tmp, targetFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+@@ -248,6 +248,12 @@ public final class ConfigManager {
+             }
+             return true;
+         } catch (IOException ignored) {
++            // Best-effort cleanup: a leftover .tmp would otherwise sit next to
++            // the config forever after a failed move.
++            try {
++                Files.deleteIfExists(tmp);
++            } catch (IOException ignored2) {
++            }
+             return false;
+         }
+     }
+diff --git a/client/src/main/java/dev/aetherclient/client/gui/ClickGuiController.java b/client/src/main/java/dev/aetherclient/client/gui/ClickGuiController.java
+index 21d0c16..2a9235b 100644
+--- a/client/src/main/java/dev/aetherclient/client/gui/ClickGuiController.java
++++ b/client/src/main/java/dev/aetherclient/client/gui/ClickGuiController.java
+@@ -194,6 +194,8 @@ public final class ClickGuiController {
+     private void clearInteractionState() {
+         this.draggingSlider = null;
+         this.draggingHud = null;
++        this.snapGuideXs.clear();
++        this.snapGuideYs.clear();
+         this.snapXCenter = false;
+         this.snapYCenter = false;
+         this.listeningKeybind = null;
+@@ -267,9 +269,17 @@ public final class ClickGuiController {
+         this.hudMouseY = (float) hudY;
+ 
+         if (draggingSlider != null) {
+-            double ratio = Math.max(0.0, Math.min(1.0, (mouseX - sliderTrackX) / Math.max(1f, sliderTrackW)));
+-            double val = draggingSlider.getMin() + ratio * (draggingSlider.getMax() - draggingSlider.getMin());
+-            draggingSlider.setValue(val);
++            // If the settings view was closed or the row scrolled out of the clip,
++            // sliderTrackX/W are stale: abort the drag instead of writing garbage.
++            boolean trackVisible = settingsViewAnim > 0.05f && lastExpandedModule != null
++                    && mouseY >= bodyY - 2f && mouseY <= bodyY + bodyH + 2f;
++            if (!trackVisible) {
++                draggingSlider = null;
++            } else {
++                double ratio = Math.max(0.0, Math.min(1.0, (mouseX - sliderTrackX) / Math.max(1f, sliderTrackW)));
++                double val = draggingSlider.getMin() + ratio * (draggingSlider.getMax() - draggingSlider.getMin());
++                draggingSlider.setValue(val);
++            }
+         }
+ 
+         if (draggingHud != null && (hudEditMode || isChatDragging)) {
+@@ -1361,7 +1371,10 @@ public final class ClickGuiController {
+             // Click targets
+             if (m == moduleManager.clickGui) {
+                 addClippedClick(clickTargets, bx, by, boxW, boxH, bodyY, bodyY + bodyH, () -> {
+-                    for (Module other : moduleManager.getModules()) other.expanded = false;
++                    for (Module other : moduleManager.getModules()) {
++                other.expanded = false;
++                if (other == lastExpandedModule && draggingSlider != null) draggingSlider = null;
++            }
+                     m.expanded = true;
+                     targetScroll = 0f;
+                     currentScroll = 0f;
+@@ -2235,7 +2248,10 @@ public final class ClickGuiController {
+         contextModule = null;
+         switch (idx) {
+             case 0 -> {
+-                for (Module other : moduleManager.getModules()) other.expanded = false;
++                for (Module other : moduleManager.getModules()) {
++                other.expanded = false;
++                if (other == lastExpandedModule && draggingSlider != null) draggingSlider = null;
++            }
+                 m.expanded = true;
+                 targetScroll = 0f;
+                 currentScroll = 0f;
+diff --git a/client/src/main/java/dev/aetherclient/client/gui/Spring.java b/client/src/main/java/dev/aetherclient/client/gui/Spring.java
+index 6930250..1362420 100644
+--- a/client/src/main/java/dev/aetherclient/client/gui/Spring.java
++++ b/client/src/main/java/dev/aetherclient/client/gui/Spring.java
+@@ -18,6 +18,10 @@ public final class Spring {
+     }
+ 
+     public void update(float dt) {
++        // Clamp dt: the explicit Euler integrator is only stable while
++        // dt < 2 / stiffness; a lag spike would otherwise make pos/vel explode.
++        if (dt > 1f / 30f) dt = 1f / 30f;
++        if (dt < 0f) dt = 0f;
+         float accel = (target - pos) * stiffness - vel * damping;
+         vel += accel * dt;
+         pos += vel * dt;
+diff --git a/client/src/main/java/dev/aetherclient/client/hud/impl/ArrayListHud.java b/client/src/main/java/dev/aetherclient/client/hud/impl/ArrayListHud.java
+index d4d4376..8b78f83 100644
+--- a/client/src/main/java/dev/aetherclient/client/hud/impl/ArrayListHud.java
++++ b/client/src/main/java/dev/aetherclient/client/hud/impl/ArrayListHud.java
+@@ -18,6 +18,11 @@ public final class ArrayListHud extends HudElement {
+     private final ModuleManager moduleManager;
+     private final HudModule hudModule;
+ 
++    // Per-frame scratch state for ArrayListHud: allocated once, reused every frame.
++    private final java.util.List<Module> scratchItems = new ArrayList<>();
++    private final java.util.List<Module> sortedScratch = new ArrayList<>();
++    private float[] scratchWidths = new float[16];
++
+     public ArrayListHud(ModuleManager moduleManager, HudModule hudModule) {
+         super("arraylist", "Список модулей", 0.985f, 0.02f);
+         setTitleEn("Module List");
+@@ -65,7 +70,9 @@ public final class ArrayListHud extends HudElement {
+             float x, float y, float screenW, float screenH, boolean editMode, float dt
+     ) {
+         long vg = engine.handle();
+-        List<Module> items = new ArrayList<>();
++        // Reused scratch list: no per-frame ArrayList allocation.
++        List<Module> items = this.scratchItems;
++        items.clear();
+         for (Module m : moduleManager.getModules()) {
+             if (m == moduleManager.clickGui) continue;
+             float target = m.isEnabled() ? 1f : 0f;
+@@ -81,15 +88,29 @@ public final class ArrayListHud extends HudElement {
+             return;
+         }
+ 
+-        items.sort(Comparator.<Module>comparingDouble(m -> measureModuleWidth(vg, m)).reversed());
++        // Measure once per module into a parallel array and sort indices,
++        // instead of O(n log n) NanoVG text measures per frame via a comparator.
++        int n = items.size();
++        if (scratchWidths.length < n) scratchWidths = new float[n * 2];
++        Integer[] order = new Integer[n];
++        for (int i = 0; i < n; i++) {
++            order[i] = i;
++            scratchWidths[i] = measureModuleWidth(vg, items.get(i));
++        }
++        java.util.Arrays.sort(order, (a, b) -> Float.compare(scratchWidths[b], scratchWidths[a]));
++        List<Module> sorted = this.sortedScratch;
++        sorted.clear();
++        for (int i = 0; i < n; i++) sorted.add(items.get(order[i]));
++        items.clear();
++        items.addAll(sorted);
+ 
+         float maxW = 0f;
+         float totalH = 0f;
+         float rowH = 19f;
+         float rowGap = 2.5f;
+-        for (Module m : items) {
+-            maxW = Math.max(maxW, measureModuleWidth(vg, m));
+-            float anim = editMode ? Math.max(0.75f, m.toggleAnim) : m.toggleAnim;
++        for (int i = 0; i < n; i++) {
++            maxW = Math.max(maxW, scratchWidths[i]);
++            float anim = editMode ? Math.max(0.75f, items.get(i).toggleAnim) : items.get(i).toggleAnim;
+             totalH += (rowH + rowGap) * anim;
+         }
+         this.width = Math.max(84f, maxW);
+diff --git a/client/src/main/java/dev/aetherclient/client/hud/impl/CompassHud.java b/client/src/main/java/dev/aetherclient/client/hud/impl/CompassHud.java
+index 595d1d9..006ebd5 100644
+--- a/client/src/main/java/dev/aetherclient/client/hud/impl/CompassHud.java
++++ b/client/src/main/java/dev/aetherclient/client/hud/impl/CompassHud.java
+@@ -94,10 +94,17 @@ public final class CompassHud extends HudElement {
+         };
+     }
+ 
++    // Cached biome label: reflection chain only re-runs when the player
++    // enters a different block, instead of 4 lookups per frame.
++    private static BlockPos lastBiomePos;
++    private static String cachedBiomeLabel = "";
++
+     private static String biomeLabel(MinecraftClient mc) {
+         try {
+             if (mc.world == null || mc.player == null) return "";
+             BlockPos pos = mc.player.getBlockPos();
++            if (pos.equals(lastBiomePos)) return cachedBiomeLabel;
++            lastBiomePos = pos;
+             Object entry = mc.world.getBiome(pos);
+             if (entry == null) return "";
+             Method getKey = entry.getClass().getMethod("getKey");
+@@ -106,7 +113,9 @@ public final class CompassHud extends HudElement {
+             Object id = key.getClass().getMethod("getValue").invoke(key);
+             String path = (String) id.getClass().getMethod("getPath").invoke(id);
+             if (path == null || path.isEmpty()) return "";
+-            return path.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + path.substring(1);
++            String label = path.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + path.substring(1);
++            cachedBiomeLabel = label;
++            return label;
+         } catch (Throwable ignored) {
+             return "";
+         }
+diff --git a/client/src/main/java/dev/aetherclient/client/hud/impl/KeystrokesHud.java b/client/src/main/java/dev/aetherclient/client/hud/impl/KeystrokesHud.java
+index e36d9c3..0f7f961 100644
+--- a/client/src/main/java/dev/aetherclient/client/hud/impl/KeystrokesHud.java
++++ b/client/src/main/java/dev/aetherclient/client/hud/impl/KeystrokesHud.java
+@@ -27,9 +27,16 @@ public final class KeystrokesHud extends HudElement {
+     }
+ 
+     public void recordMouseClick(int button) {
++        // Prune here as well: with the widget hidden render() never runs,
++        // so unpruned deques would grow for the whole session.
+         long now = System.currentTimeMillis();
+-        if (button == 0) leftClicks.addLast(now);
+-        else if (button == 1) rightClicks.addLast(now);
++        if (button == 0) {
++            leftClicks.addLast(now);
++            pruneAndCount(leftClicks, now);
++        } else if (button == 1) {
++            rightClicks.addLast(now);
++            pruneAndCount(rightClicks, now);
++        }
+     }
+ 
+     private static int pruneAndCount(Deque<Long> deque, long now) {
+diff --git a/client/src/main/java/dev/aetherclient/client/hud/impl/TargetHudElement.java b/client/src/main/java/dev/aetherclient/client/hud/impl/TargetHudElement.java
+index f3ff365..8334d9d 100644
+--- a/client/src/main/java/dev/aetherclient/client/hud/impl/TargetHudElement.java
++++ b/client/src/main/java/dev/aetherclient/client/hud/impl/TargetHudElement.java
+@@ -68,6 +68,8 @@ public final class TargetHudElement extends HudElement {
+         return !module.onlyPlayers.isEnabled() || entity instanceof PlayerEntity;
+     }
+ 
++    private ItemStack[] armorStacks;
++
+     @Override
+     public boolean isActive() {
+         return module.isEnabled();
+@@ -171,7 +173,8 @@ public final class TargetHudElement extends HudElement {
+             }
+ 
+             if (module.showArmor.isEnabled()) {
+-                armorStacks = new ItemStack[4];
++                // Reused field array: allocated once, refilled per frame.
++            if (armorStacks == null) armorStacks = new ItemStack[4];
+                 for (int i = 0; i < 4; i++) {
+                     armorStacks[i] = display.getEquippedStack(ARMOR_SLOTS[i]);
+                 }
+diff --git a/client/src/main/java/dev/aetherclient/client/module/impl/DiscordRpcModule.java b/client/src/main/java/dev/aetherclient/client/module/impl/DiscordRpcModule.java
+index a9b9201..4c780d8 100644
+--- a/client/src/main/java/dev/aetherclient/client/module/impl/DiscordRpcModule.java
++++ b/client/src/main/java/dev/aetherclient/client/module/impl/DiscordRpcModule.java
+@@ -25,8 +25,12 @@ public final class DiscordRpcModule extends Module {
+         setEn("Discord RPC", "Rich Presence status in your Discord profile");
+     }
+ 
++    /** Guards against queued tasks re-creating the IPC client after disable(). */
++    private volatile boolean disabled = true;
++
+     @Override
+     protected void onEnable() {
++        disabled = false;
+         initExecutor();
+         lastUpdateMs = 0;
+         rpcExecutor.execute(() -> {
+@@ -41,14 +45,18 @@ public final class DiscordRpcModule extends Module {
+ 
+     @Override
+     protected void onDisable() {
++        disabled = true;
+         if (rpcExecutor != null) {
+-            rpcExecutor.execute(() -> {
++            java.util.concurrent.ExecutorService exec = rpcExecutor;
++            exec.execute(() -> {
+                 if (client != null) {
+                     client.close();
+                     client = null;
+                 }
+             });
+-            rpcExecutor.shutdown();
++            // shutdownNow: pending presence ticks must not run after close and
++            // recreate the IPC client (they guard on 'disabled' anyway).
++            exec.shutdownNow();
+             rpcExecutor = null;
+         }
+     }
+@@ -65,7 +73,7 @@ public final class DiscordRpcModule extends Module {
+ 
+     @Override
+     public void onTick(MinecraftClient mc) {
+-        if (!isEnabled()) return;
++        if (!isEnabled() || disabled) return;
+         long now = System.currentTimeMillis();
+         if (now - lastUpdateMs < 4000) return; // update every 4s
+         lastUpdateMs = now;
+diff --git a/client/src/main/java/dev/aetherclient/client/module/setting/NumberSetting.java b/client/src/main/java/dev/aetherclient/client/module/setting/NumberSetting.java
+index 6c671ed..6ff4e6d 100644
+--- a/client/src/main/java/dev/aetherclient/client/module/setting/NumberSetting.java
++++ b/client/src/main/java/dev/aetherclient/client/module/setting/NumberSetting.java
+@@ -34,22 +34,33 @@ public final class NumberSetting extends Setting<Double> {
+         if (raw == null || !Double.isFinite(raw)) return;
+         double clamped = Math.max(min, Math.min(max, raw));
+         if (step > 0) {
+-            long ticks = Math.round(clamped / step);
+-            clamped = java.math.BigDecimal.valueOf(ticks)
++            // Snap ticks relative to min so that min itself is always reachable
++            // even when it is not a multiple of step.
++            long ticks = Math.round((clamped - min) / step);
++            clamped = min + java.math.BigDecimal.valueOf(ticks)
+                     .multiply(java.math.BigDecimal.valueOf(step))
+                     .doubleValue();
+             clamped = Math.max(min, Math.min(max, clamped));
+         }
+         super.setValue(clamped);
++        cachedFormatted = null;
+     }
+ 
++    /** Cached display string, invalidated on setValue; rebuilt at most once per value change. */
++    private String cachedFormatted;
++
+     public String formatted() {
++        String cached = cachedFormatted;
++        if (cached != null) return cached;
++        String out;
+         if (step >= 1.0) {
+-            return Long.toString(Math.round(getValue()));
+-        }
+-        if (step >= 0.1) {
+-            return String.format(java.util.Locale.ROOT, "%.1f", getValue());
++            out = Long.toString(Math.round(getValue()));
++        } else if (step >= 0.1) {
++            out = String.format(java.util.Locale.ROOT, "%.1f", getValue());
++        } else {
++            out = String.format(java.util.Locale.ROOT, "%.2f", getValue());
+         }
+-        return String.format(java.util.Locale.ROOT, "%.2f", getValue());
++        cachedFormatted = out;
++        return out;
+     }
+ }
+diff --git a/client/src/main/java/dev/aetherclient/client/render/KawaseBlur.java b/client/src/main/java/dev/aetherclient/client/render/KawaseBlur.java
+index b4eb2ce..68233f8 100644
+--- a/client/src/main/java/dev/aetherclient/client/render/KawaseBlur.java
++++ b/client/src/main/java/dev/aetherclient/client/render/KawaseBlur.java
+@@ -178,7 +178,14 @@ public final class KawaseBlur {
+         return resizePending;
+     }
+ 
++    /**
++     * glGetError is a CPU/GPU sync point; keep it off the hot path unless
++     * explicitly enabled while debugging the blur pipeline.
++     */
++    public static boolean DEBUG_ERROR_CHECKS = false;
++
+     private static void checkGLError(String stage) {
++        if (!DEBUG_ERROR_CHECKS) return;
+         int err = GL11.glGetError();
+         if (err != GL11.GL_NO_ERROR) {
+             String msg = "OpenGL error at " + stage + ": 0x" + Integer.toHexString(err);
+@@ -219,10 +226,18 @@ public final class KawaseBlur {
+             fbos[i] = GL30.glGenFramebuffers();
+             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbos[i]);
+             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textures[i], 0);
++            int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
++            if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
++                System.err.println("[KawaseBlur] FBO " + i + " incomplete: 0x" + Integer.toHexString(status));
++                deleteBuffers();
++                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
++                return;
++            }
+ 
+             w = Math.max(1, w / 2);
+             h = Math.max(1, h / 2);
+         }
++        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+     }
+ 
+     private void deleteBuffers() {
+diff --git a/client/src/main/java/dev/aetherclient/client/render/VisualRenderer.java b/client/src/main/java/dev/aetherclient/client/render/VisualRenderer.java
+index 0bab108..06cbf4e 100644
+--- a/client/src/main/java/dev/aetherclient/client/render/VisualRenderer.java
++++ b/client/src/main/java/dev/aetherclient/client/render/VisualRenderer.java
+@@ -195,6 +195,9 @@ public final class VisualRenderer {
+     private LivingEntity activeTarget = null;
+     private long activeTargetMs = 0L;
+     private float targetSpinAngle = 0f;
++    // double accumulator: float time loses sub-second precision after ~4.6h
++    // of uptime (ULP > 1s above 2^24), freezing cosmetic animations.
++    private double globalTimeD = 0.0;
+     private float globalTime = 0f;
+     private Object lastWorldRef = null;
+     private float prevYaw = Float.NaN;
+@@ -344,7 +347,7 @@ public final class VisualRenderer {
+             updateHpTracking(mc, mm);
+         }
+ 
+-        globalTime += dt;
++        globalTimeD += dt; globalTime = (float) globalTimeD;
+         float tickDelta = mc.getRenderTickCounter() != null ? mc.getRenderTickCounter().getTickProgress(false) : 1f;
+         float fovOverride = mm.zoom.isEnabled() ? mm.zoom.getEffectiveFov(mc) : -1f;
+         wts.prepare(mc, screenW, screenH, fovOverride, tickDelta);
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/inject/JvmInjector.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/inject/JvmInjector.kt
+index 08d38d8..65a8c5f 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/inject/JvmInjector.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/inject/JvmInjector.kt
+@@ -15,7 +15,18 @@ import java.util.concurrent.ConcurrentHashMap
+ 
+ object JvmInjector {
+     private val pidLocks = ConcurrentHashMap<String, Mutex>()
+-    private fun getPidLock(pid: String): Mutex = pidLocks.computeIfAbsent(pid) { Mutex() }
++    private fun isAlive(pid: String): Boolean =
++        pid.toLongOrNull()?.let { ProcessHandle.of(it).map { h -> h.isAlive }.orElse(false) } ?: false
++
++    private fun getPidLock(pid: String): Mutex {
++        val lock = pidLocks.computeIfAbsent(pid) { Mutex() }
++        // Prune mutexes of dead processes so the map cannot grow unbounded
++        // over a long launcher session.
++        if (pidLocks.size > 64) {
++            pidLocks.entries.removeIf { (p, _) -> runCatching { !isAlive(p) }.getOrDefault(true) }
++        }
++        return lock
++    }
+     private val ignoredKeywords = listOf(
+         "dev.aetherclient.launcher.MainKt",
+         "GradleDaemon",
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/launch/InstanceManager.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/launch/InstanceManager.kt
+index 7e10ce7..21375a3 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/launch/InstanceManager.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/launch/InstanceManager.kt
+@@ -208,7 +208,7 @@ object InstanceManager {
+                 legacyOverrideIdx = i
+             } else if (trimmed.startsWith("JvmArgs=")) {
+                 jvmArgsLineIdx = i
+-                existingJvmArgs = trimmed.substringAfter("JvmArgs=").trim()
++                existingJvmArgs = unescapeQSettings(trimmed.substringAfter("JvmArgs=").trim())
+                 if (existingJvmArgs.length >= 2 && existingJvmArgs.startsWith('"') && existingJvmArgs.endsWith('"')) {
+                     val inner = existingJvmArgs.substring(1, existingJvmArgs.length - 1)
+                     if (!inner.contains('"')) {
+@@ -232,15 +232,28 @@ object InstanceManager {
+         }
+ 
+         if (jvmArgsLineIdx >= 0) {
+-            lines[jvmArgsLineIdx] = "JvmArgs=$combinedArgs"
++            lines[jvmArgsLineIdx] = "JvmArgs=${escapeQSettings(combinedArgs)}"
+         } else {
+-            lines.add(generalIdx + 2, "JvmArgs=$combinedArgs")
++            // Insert at the end of [General] — right before the next section
++            // header — so JvmArgs can never land inside a following section.
++            val insertIdx = nextSectionIdx.coerceAtLeast(generalIdx + 1)
++            lines.add(insertIdx, "JvmArgs=${escapeQSettings(combinedArgs)}")
+         }
+ 
+         val joined = lines.joinToString("\n")
+         return if (joined.endsWith("\n")) joined else "$joined\n"
+     }
+ 
++    /**
++     * instance.cfg is Qt QSettings INI: values escape backslashes and quotes.
++     * Round-tripping raw values corrupts Windows paths and quoted JVM args.
++     */
++    internal fun escapeQSettings(value: String): String =
++        value.replace("\\", "\\\\").replace("\"", "\\\"")
++
++    internal fun unescapeQSettings(value: String): String =
++        value.replace("\\\"", "\"").replace("\\\\", "\\")
++
+     internal fun stripExistingAetherAgent(args: String): String {
+         if (args.isBlank()) return ""
+         val withoutFullyQuoted = args.replace(
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/network/HttpClientFactory.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/network/HttpClientFactory.kt
+index 63fa74e..cc03f69 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/network/HttpClientFactory.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/network/HttpClientFactory.kt
+@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
+ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+ import io.ktor.client.plugins.defaultRequest
+ import io.ktor.client.request.get
++import io.ktor.http.isSuccess
+ import io.ktor.client.request.header
+ import io.ktor.client.statement.bodyAsChannel
+ import io.ktor.http.HttpHeaders
+@@ -61,6 +62,9 @@ object HttpClientFactory {
+         val tmpFile = target.resolveSibling("${target.fileName}.part")
+ 
+         val response = client.get(url)
++        if (!response.status.isSuccess()) {
++            error("Download failed with HTTP ${response.status} for $url")
++        }
+         val channel = response.bodyAsChannel()
+         Files.newOutputStream(tmpFile).use { out ->
+             channel.copyTo(out)
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/update/UpdateManager.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/update/UpdateManager.kt
+index b1dc693..e121eb7 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/update/UpdateManager.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/core/update/UpdateManager.kt
+@@ -25,7 +25,10 @@ object UpdateManager {
+ 
+     suspend fun checkUpdate(): Result<UpdateInfo> = withContext(Dispatchers.IO) {
+         runCatching {
+-            val json = URI.create(VERSION_URL).toURL().openStream().bufferedReader().use { it.readText() }
++            val conn = URI.create(VERSION_URL).toURL().openConnection() as java.net.HttpURLConnection
++            conn.connectTimeout = 8000
++            conn.readTimeout = 8000
++            val json = conn.inputStream.bufferedReader().use { it.readText() }
+             val verMatcher = Pattern.compile("\"version\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
+             val notesMatcher = Pattern.compile("\"releaseNotes\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
+             val jarMatcher = Pattern.compile("\"launcherJar\"\\s*:\\s*\"([^\"]+)\"").matcher(json)
+@@ -52,23 +55,46 @@ object UpdateManager {
+             connection.readTimeout = 15000
+             val totalBytes = connection.contentLengthLong
+ 
+-            connection.getInputStream().use { input ->
+-                Files.newOutputStream(tempJar).use { output ->
+-                    val buffer = ByteArray(8192)
+-                    var bytesRead: Int
+-                    var totalRead = 0L
+-                    while (input.read(buffer).also { bytesRead = it } != -1) {
+-                        output.write(buffer, 0, bytesRead)
+-                        totalRead += bytesRead
+-                        if (totalBytes > 0) {
+-                            onProgress(totalRead.toFloat() / totalBytes.toFloat())
++            var http: java.net.HttpURLConnection? = null
++            try {
++                http = connection as java.net.HttpURLConnection
++                val code = http.responseCode
++                if (code !in 200..299) {
++                    error("Update download failed with HTTP $code")
++                }
++                val lastProgressEmit = java.util.concurrent.atomic.AtomicLong(0L)
++                http.inputStream.use { input ->
++                    Files.newOutputStream(tempJar).use { output ->
++                        val buffer = ByteArray(8192)
++                        var bytesRead: Int
++                        var totalRead = 0L
++                        while (input.read(buffer).also { bytesRead = it } != -1) {
++                            output.write(buffer, 0, bytesRead)
++                            totalRead += bytesRead
++                            if (totalBytes > 0) {
++                                // Throttle progress to ~20 Hz so Compose state isn't
++                                // invalidated for every 8 KiB chunk.
++                                val now = System.nanoTime()
++                                if (now - lastProgressEmit.get() > 50_000_000L && lastProgressEmit.compareAndSet(
++                                        lastProgressEmit.get(), now
++                                    )
++                                ) {
++                                    onProgress((totalRead.toFloat() / totalBytes).coerceIn(0f, 1f))
++                                }
++                            }
+                         }
++                        onProgress(1f)
+                     }
+                 }
+-            }
+ 
+-            Files.move(tempJar, targetJar, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+-            targetJar
++                Files.move(tempJar, targetJar, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
++                targetJar
++            } catch (t: Throwable) {
++                Files.deleteIfExists(tempJar)
++                throw t
++            } finally {
++                http?.disconnect()
++            }
+         }
+     }
+ 
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/screens/SettingsScreen.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/screens/SettingsScreen.kt
+index beaea2a..dc74b09 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/screens/SettingsScreen.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/screens/SettingsScreen.kt
+@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.setValue
+@@ -63,6 +64,7 @@ import java.nio.file.Paths
+ @OptIn(ExperimentalLayoutApi::class)
+ @Composable
+ fun SettingsScreen(controller: LauncherController) {
++    var confirmReset by remember { mutableStateOf(false) }
+     val settings = controller.settings
+     val isEn = settings.language.equals("EN", ignoreCase = true)
+     fun tr(ru: String, en: String): String = if (isEn) en else ru
+@@ -350,7 +352,7 @@ fun SettingsScreen(controller: LauncherController) {
+                     }
+ 
+                     OutlinedButton(
+-                        onClick = { controller.resetClientConfig() },
++                        onClick = { confirmReset = true },
+                         shape = RoundedCornerShape(100.dp),
+                         modifier = Modifier.weight(1f)
+                     ) {
+@@ -362,6 +364,30 @@ fun SettingsScreen(controller: LauncherController) {
+             }
+         }
+ 
++        if (confirmReset) {
++            androidx.compose.material3.AlertDialog(
++                onDismissRequest = { confirmReset = false },
++                title = { Text(tr("Сбросить конфиг?", "Reset config?")) },
++                text = {
++                    Text(tr(
++                        "Все .json конфиги клиента будут удалены и восстановлены заводские настройки. Действие необратимо.",
++                        "All client .json configs will be deleted and factory defaults restored. This cannot be undone."
++                    ))
++                },
++                confirmButton = {
++                    TextButton(onClick = {
++                        confirmReset = false
++                        controller.resetClientConfig()
++                    }) { Text(tr("Сбросить", "Reset"), color = MaterialTheme.colorScheme.error) }
++                },
++                dismissButton = {
++                    TextButton(onClick = { confirmReset = false }) {
++                        Text(tr("Отмена", "Cancel"))
++                    }
++                }
++            )
++        }
++
+         // OTA Auto-Update Card
+         LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+             Column(
+diff --git a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/state/LauncherController.kt b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/state/LauncherController.kt
+index 84eecf0..7402863 100644
+--- a/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/state/LauncherController.kt
++++ b/launcher/src/commonMain/kotlin/dev/aetherclient/launcher/ui/state/LauncherController.kt
+@@ -336,11 +336,21 @@ class LauncherController {
+         refreshProcessesNow()
+     }
+ 
++    private var settingsSaveJob: Job? = null
++
+     fun updateSettings(newSettings: LoaderSettings) {
+         settings = newSettings
+-        runCatching { LauncherStateStore.save(newSettings) }
+         payloadPath = LoaderBootstrapper.resolvePayloadPath(newSettings.customAgentPath)
+         payloadExists = Files.isRegularFile(payloadPath)
++        // Debounced disk write on Dispatchers.IO: updateSettings fires on every
++        // keystroke, a synchronous save per character froze the UI and hammered disk.
++        settingsSaveJob?.cancel()
++        settingsSaveJob = scope.launch {
++            kotlinx.coroutines.delay(400) // debounce window
++            kotlinx.coroutines.withContext(Dispatchers.IO) {
++                runCatching { LauncherStateStore.save(settings) }
++            }
++        }
+     }
+ 
+     fun openPayloadsFolder() {
+@@ -351,6 +361,12 @@ class LauncherController {
+         private set
+ 
+     fun resetClientConfig() {
++        scope.launch {
++            kotlinx.coroutines.withContext(Dispatchers.IO) { resetClientConfigBlocking() }
++        }
++    }
++
++    private fun resetClientConfigBlocking() {
+         runCatching {
+             val configsDir = LauncherPaths.configsDir
+             if (Files.exists(configsDir)) {
+@@ -403,7 +419,7 @@ class LauncherController {
+                         }
+                     } else if (!silent) {
+                         updateBanner = if (settings.language.equals("EN", ignoreCase = true)) {
+-                            "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
++                            "You are running the latest version (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
+                         } else {
+                             "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
+                         }
+@@ -522,6 +538,14 @@ class LauncherController {
+     }
+ 
+     fun close() {
++        // Flush a pending debounced settings save before shutting down.
++        settingsSaveJob?.cancel()
++        runCatching {
++            if (settingsSaveJob?.isCompleted != true) {
++                LauncherStateStore.save(settings)
++            }
++        }
+         scope.cancel()
++        runCatching { dev.aetherclient.launcher.core.network.HttpClientFactory.client.close() }
+     }
+ }
+diff --git a/launcher/src/desktopMain/resources/payload/aether-agent.jar b/launcher/src/desktopMain/resources/payload/aether-agent.jar
+index 57fb7bc..0b0ecf5 100644
+Binary files a/launcher/src/desktopMain/resources/payload/aether-agent.jar and b/launcher/src/desktopMain/resources/payload/aether-agent.jar differ

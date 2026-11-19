@@ -27,9 +27,16 @@ public final class KeystrokesHud extends HudElement {
     }
 
     public void recordMouseClick(int button) {
+        // Prune here as well: with the widget hidden render() never runs,
+        // so unpruned deques would grow for the whole session.
         long now = System.currentTimeMillis();
-        if (button == 0) leftClicks.addLast(now);
-        else if (button == 1) rightClicks.addLast(now);
+        if (button == 0) {
+            leftClicks.addLast(now);
+            pruneAndCount(leftClicks, now);
+        } else if (button == 1) {
+            rightClicks.addLast(now);
+            pruneAndCount(rightClicks, now);
+        }
     }
 
     private static int pruneAndCount(Deque<Long> deque, long now) {

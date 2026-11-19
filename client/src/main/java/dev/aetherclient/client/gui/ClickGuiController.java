@@ -194,6 +194,8 @@ public final class ClickGuiController {
     private void clearInteractionState() {
         this.draggingSlider = null;
         this.draggingHud = null;
+        this.snapGuideXs.clear();
+        this.snapGuideYs.clear();
         this.snapXCenter = false;
         this.snapYCenter = false;
         this.listeningKeybind = null;
@@ -267,9 +269,17 @@ public final class ClickGuiController {
         this.hudMouseY = (float) hudY;
 
         if (draggingSlider != null) {
-            double ratio = Math.max(0.0, Math.min(1.0, (mouseX - sliderTrackX) / Math.max(1f, sliderTrackW)));
-            double val = draggingSlider.getMin() + ratio * (draggingSlider.getMax() - draggingSlider.getMin());
-            draggingSlider.setValue(val);
+            // If the settings view was closed or the row scrolled out of the clip,
+            // sliderTrackX/W are stale: abort the drag instead of writing garbage.
+            boolean trackVisible = settingsViewAnim > 0.05f && lastExpandedModule != null
+                    && mouseY >= bodyY - 2f && mouseY <= bodyY + bodyH + 2f;
+            if (!trackVisible) {
+                draggingSlider = null;
+            } else {
+                double ratio = Math.max(0.0, Math.min(1.0, (mouseX - sliderTrackX) / Math.max(1f, sliderTrackW)));
+                double val = draggingSlider.getMin() + ratio * (draggingSlider.getMax() - draggingSlider.getMin());
+                draggingSlider.setValue(val);
+            }
         }
 
         if (draggingHud != null && (hudEditMode || isChatDragging)) {
@@ -1361,7 +1371,10 @@ public final class ClickGuiController {
             // Click targets
             if (m == moduleManager.clickGui) {
                 addClippedClick(clickTargets, bx, by, boxW, boxH, bodyY, bodyY + bodyH, () -> {
-                    for (Module other : moduleManager.getModules()) other.expanded = false;
+                    for (Module other : moduleManager.getModules()) {
+                other.expanded = false;
+                if (other == lastExpandedModule && draggingSlider != null) draggingSlider = null;
+            }
                     m.expanded = true;
                     targetScroll = 0f;
                     currentScroll = 0f;
@@ -2235,7 +2248,10 @@ public final class ClickGuiController {
         contextModule = null;
         switch (idx) {
             case 0 -> {
-                for (Module other : moduleManager.getModules()) other.expanded = false;
+                for (Module other : moduleManager.getModules()) {
+                other.expanded = false;
+                if (other == lastExpandedModule && draggingSlider != null) draggingSlider = null;
+            }
                 m.expanded = true;
                 targetScroll = 0f;
                 currentScroll = 0f;

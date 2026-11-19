@@ -18,6 +18,10 @@ public final class Spring {
     }
 
     public void update(float dt) {
+        // Clamp dt: the explicit Euler integrator is only stable while
+        // dt < 2 / stiffness; a lag spike would otherwise make pos/vel explode.
+        if (dt > 1f / 30f) dt = 1f / 30f;
+        if (dt < 0f) dt = 0f;
         float accel = (target - pos) * stiffness - vel * damping;
         vel += accel * dt;
         pos += vel * dt;

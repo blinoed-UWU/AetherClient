@@ -336,11 +336,21 @@ class LauncherController {
         refreshProcessesNow()
     }
 
+    private var settingsSaveJob: Job? = null
+
     fun updateSettings(newSettings: LoaderSettings) {
         settings = newSettings
-        runCatching { LauncherStateStore.save(newSettings) }
         payloadPath = LoaderBootstrapper.resolvePayloadPath(newSettings.customAgentPath)
         payloadExists = Files.isRegularFile(payloadPath)
+        // Debounced disk write on Dispatchers.IO: updateSettings fires on every
+        // keystroke, a synchronous save per character froze the UI and hammered disk.
+        settingsSaveJob?.cancel()
+        settingsSaveJob = scope.launch {
+            kotlinx.coroutines.delay(400) // debounce window
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { LauncherStateStore.save(settings) }
+            }
+        }
     }
 
     fun openPayloadsFolder() {
@@ -351,6 +361,12 @@ class LauncherController {
         private set
 
     fun resetClientConfig() {
+        scope.launch {
+            kotlinx.coroutines.withContext(Dispatchers.IO) { resetClientConfigBlocking() }
+        }
+    }
+
+    private fun resetClientConfigBlocking() {
         runCatching {
             val configsDir = LauncherPaths.configsDir
             if (Files.exists(configsDir)) {
@@ -403,7 +419,7 @@ class LauncherController {
                         }
                     } else if (!silent) {
                         updateBanner = if (settings.language.equals("EN", ignoreCase = true)) {
-                            "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
+                            "You are running the latest version (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
                         } else {
                             "У вас установлена последняя версия (v${dev.aetherclient.launcher.core.update.UpdateManager.CURRENT_VERSION})"
                         }
@@ -522,6 +538,14 @@ class LauncherController {
     }
 
     fun close() {
+        // Flush a pending debounced settings save before shutting down.
+        settingsSaveJob?.cancel()
+        runCatching {
+            if (settingsSaveJob?.isCompleted != true) {
+                LauncherStateStore.save(settings)
+            }
+        }
         scope.cancel()
+        runCatching { dev.aetherclient.launcher.core.network.HttpClientFactory.client.close() }
     }
 }

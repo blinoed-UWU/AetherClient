@@ -195,6 +195,9 @@ public final class VisualRenderer {
     private LivingEntity activeTarget = null;
     private long activeTargetMs = 0L;
     private float targetSpinAngle = 0f;
+    // double accumulator: float time loses sub-second precision after ~4.6h
+    // of uptime (ULP > 1s above 2^24), freezing cosmetic animations.
+    private double globalTimeD = 0.0;
     private float globalTime = 0f;
     private Object lastWorldRef = null;
     private float prevYaw = Float.NaN;
@@ -344,7 +347,7 @@ public final class VisualRenderer {
             updateHpTracking(mc, mm);
         }
 
-        globalTime += dt;
+        globalTimeD += dt; globalTime = (float) globalTimeD;
         float tickDelta = mc.getRenderTickCounter() != null ? mc.getRenderTickCounter().getTickProgress(false) : 1f;
         float fovOverride = mm.zoom.isEnabled() ? mm.zoom.getEffectiveFov(mc) : -1f;
         wts.prepare(mc, screenW, screenH, fovOverride, tickDelta);

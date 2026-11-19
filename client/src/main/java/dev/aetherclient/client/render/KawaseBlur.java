@@ -178,7 +178,14 @@ public final class KawaseBlur {
         return resizePending;
     }
 
+    /**
+     * glGetError is a CPU/GPU sync point; keep it off the hot path unless
+     * explicitly enabled while debugging the blur pipeline.
+     */
+    public static boolean DEBUG_ERROR_CHECKS = false;
+
     private static void checkGLError(String stage) {
+        if (!DEBUG_ERROR_CHECKS) return;
         int err = GL11.glGetError();
         if (err != GL11.GL_NO_ERROR) {
             String msg = "OpenGL error at " + stage + ": 0x" + Integer.toHexString(err);
@@ -219,10 +226,18 @@ public final class KawaseBlur {
             fbos[i] = GL30.glGenFramebuffers();
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbos[i]);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textures[i], 0);
+            int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
+            if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+                System.err.println("[KawaseBlur] FBO " + i + " incomplete: 0x" + Integer.toHexString(status));
+                deleteBuffers();
+                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+                return;
+            }
 
             w = Math.max(1, w / 2);
             h = Math.max(1, h / 2);
         }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
     }
 
     private void deleteBuffers() {

@@ -34,22 +34,33 @@ public final class NumberSetting extends Setting<Double> {
         if (raw == null || !Double.isFinite(raw)) return;
         double clamped = Math.max(min, Math.min(max, raw));
         if (step > 0) {
-            long ticks = Math.round(clamped / step);
-            clamped = java.math.BigDecimal.valueOf(ticks)
+            // Snap ticks relative to min so that min itself is always reachable
+            // even when it is not a multiple of step.
+            long ticks = Math.round((clamped - min) / step);
+            clamped = min + java.math.BigDecimal.valueOf(ticks)
                     .multiply(java.math.BigDecimal.valueOf(step))
                     .doubleValue();
             clamped = Math.max(min, Math.min(max, clamped));
         }
         super.setValue(clamped);
+        cachedFormatted = null;
     }
 
+    /** Cached display string, invalidated on setValue; rebuilt at most once per value change. */
+    private String cachedFormatted;
+
     public String formatted() {
+        String cached = cachedFormatted;
+        if (cached != null) return cached;
+        String out;
         if (step >= 1.0) {
-            return Long.toString(Math.round(getValue()));
+            out = Long.toString(Math.round(getValue()));
+        } else if (step >= 0.1) {
+            out = String.format(java.util.Locale.ROOT, "%.1f", getValue());
+        } else {
+            out = String.format(java.util.Locale.ROOT, "%.2f", getValue());
         }
-        if (step >= 0.1) {
-            return String.format(java.util.Locale.ROOT, "%.1f", getValue());
-        }
-        return String.format(java.util.Locale.ROOT, "%.2f", getValue());
+        cachedFormatted = out;
+        return out;
     }
 }

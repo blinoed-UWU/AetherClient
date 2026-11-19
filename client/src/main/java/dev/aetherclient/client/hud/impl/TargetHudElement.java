@@ -68,6 +68,8 @@ public final class TargetHudElement extends HudElement {
         return !module.onlyPlayers.isEnabled() || entity instanceof PlayerEntity;
     }
 
+    private ItemStack[] armorStacks;
+
     @Override
     public boolean isActive() {
         return module.isEnabled();
@@ -171,7 +173,8 @@ public final class TargetHudElement extends HudElement {
             }
 
             if (module.showArmor.isEnabled()) {
-                armorStacks = new ItemStack[4];
+                // Reused field array: allocated once, refilled per frame.
+            if (armorStacks == null) armorStacks = new ItemStack[4];
                 for (int i = 0; i < 4; i++) {
                     armorStacks[i] = display.getEquippedStack(ARMOR_SLOTS[i]);
                 }

@@ -208,7 +208,7 @@ object InstanceManager {
                 legacyOverrideIdx = i
             } else if (trimmed.startsWith("JvmArgs=")) {
                 jvmArgsLineIdx = i
-                existingJvmArgs = trimmed.substringAfter("JvmArgs=").trim()
+                existingJvmArgs = unescapeQSettings(trimmed.substringAfter("JvmArgs=").trim())
                 if (existingJvmArgs.length >= 2 && existingJvmArgs.startsWith('"') && existingJvmArgs.endsWith('"')) {
                     val inner = existingJvmArgs.substring(1, existingJvmArgs.length - 1)
                     if (!inner.contains('"')) {
@@ -232,14 +232,27 @@ object InstanceManager {
         }
 
         if (jvmArgsLineIdx >= 0) {
-            lines[jvmArgsLineIdx] = "JvmArgs=$combinedArgs"
+            lines[jvmArgsLineIdx] = "JvmArgs=${escapeQSettings(combinedArgs)}"
         } else {
-            lines.add(generalIdx + 2, "JvmArgs=$combinedArgs")
+            // Insert at the end of [General] — right before the next section
+            // header — so JvmArgs can never land inside a following section.
+            val insertIdx = nextSectionIdx.coerceAtLeast(generalIdx + 1)
+            lines.add(insertIdx, "JvmArgs=${escapeQSettings(combinedArgs)}")
         }
 
         val joined = lines.joinToString("\n")
         return if (joined.endsWith("\n")) joined else "$joined\n"
     }
+
+    /**
+     * instance.cfg is Qt QSettings INI: values escape backslashes and quotes.
+     * Round-tripping raw values corrupts Windows paths and quoted JVM args.
+     */
+    internal fun escapeQSettings(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    internal fun unescapeQSettings(value: String): String =
+        value.replace("\\\"", "\"").replace("\\\\", "\\")
 
     internal fun stripExistingAetherAgent(args: String): String {
         if (args.isBlank()) return ""
