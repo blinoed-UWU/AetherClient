@@ -101,9 +101,12 @@ public final class AetherClientMain {
         FpsPingGraphHud fpsPing = new FpsPingGraphHud(moduleManager.hud);
         InventoryHud inventory = new InventoryHud(moduleManager.hud);
         ArmorHudPro armorPro = new ArmorHudPro(moduleManager.hud);
+        dev.aetherclient.client.hud.impl.CooldownsHud cooldowns = new dev.aetherclient.client.hud.impl.CooldownsHud(moduleManager.hud);
+        dev.aetherclient.client.hud.impl.HotkeysHud hotkeys = new dev.aetherclient.client.hud.impl.HotkeysHud(moduleManager, moduleManager.hud);
         this.hudElements = List.of(
                 watermark, coords, keystrokesHud, armor, arrayList, targetHud,
-                potions, radar, stats, compass, speedometer, fpsPing, inventory, armorPro
+                potions, radar, stats, compass, speedometer, fpsPing, inventory, armorPro,
+                cooldowns, hotkeys
         );
 
         configManager.loadClientConfig(moduleManager, hudElements);

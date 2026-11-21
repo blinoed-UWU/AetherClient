@@ -19,17 +19,25 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class CustomScoreboardModule extends Module {
-    public final ModeSetting position = addSetting(new ModeSetting("position", "Сторона", "Правый", "Правый", "Левый").withEn("Side"));
-    public final ModeSetting palette = addSetting(new ModeSetting("palette", "Палитра", "Тема", "Статика", "Радуга", "Тема", "Градиент").withEn("Palette"));
-    public final ColorSetting color = addSetting(new ColorSetting("color", "Цвет", 0xFF7C5CFF).withEn("Color"));
+    public final ModeSetting position = addSetting(new ModeSetting("position", "Сторона экрана", "Правый", "Правый", "Левый", "По центру").withEn("Screen Side"));
+    public final ModeSetting palette = addSetting(new ModeSetting("palette", "Палитра", "Тема", "Тема", "Статика", "Радуга", "Градиент", "Киберпанк", "Стекло").withEn("Palette"));
+    public final ColorSetting color = addSetting(new ColorSetting("color", "Акцентный цвет", 0xFF7C5CFF).withEn("Accent Color"));
+    public final ColorSetting textColor = addSetting(new ColorSetting("text_col", "Цвет текста", 0xFFFFFFFF).withEn("Text Color"));
     public final NumberSetting colorSpeed = addSetting(new NumberSetting("color_speed", "Скорость цвета", 1.0, 0.2, 4.0, 0.1).withEn("Color Speed"));
-    public final NumberSetting opacity = addSetting(new NumberSetting("opacity", "Плотность стекла", 0.62, 0.25, 0.92, 0.02).withEn("Glass Opacity"));
-    public final BooleanSetting showTitle = addSetting(new BooleanSetting("show_title", "Заголовок", true).withEn("Show Title"));
-    public final BooleanSetting redScores = addSetting(new BooleanSetting("red_scores", "Красные очки", true).withEn("Red Scores"));
+    public final NumberSetting opacity = addSetting(new NumberSetting("opacity", "Плотность стекла", 0.62, 0.15, 0.95, 0.02).withEn("Glass Opacity"));
+    public final NumberSetting scale = addSetting(new NumberSetting("scale", "Масштаб скорборда", 1.0, 0.6, 1.6, 0.05).withEn("Scoreboard Scale"));
+    public final NumberSetting offsetX = addSetting(new NumberSetting("offset_x", "Смещение по X", 0.0, -250.0, 250.0, 5.0).withEn("Offset X"));
+    public final NumberSetting offsetY = addSetting(new NumberSetting("offset_y", "Смещение по Y", 0.0, -250.0, 250.0, 5.0).withEn("Offset Y"));
+    public final BooleanSetting showTitle = addSetting(new BooleanSetting("show_title", "Показывать заголовок", true).withEn("Show Title"));
+    public final BooleanSetting redScores = addSetting(new BooleanSetting("red_scores", "Красные очки справа", true).withEn("Red Scores"));
+    public final BooleanSetting roundedCorners = addSetting(new BooleanSetting("rounded", "Скругленные углы", true).withEn("Rounded Corners"));
+    public final NumberSetting cornerRadius = addSetting(new NumberSetting("radius", "Радиус скругления", 8.0, 2.0, 18.0, 1.0).withEn("Corner Radius"));
+    public final BooleanSetting blur = addSetting(new BooleanSetting("blur", "Размытие фона (Kawase)", true).withEn("Blur Background"));
+    public final BooleanSetting hideServerIp = addSetting(new BooleanSetting("hide_ip", "Скрывать IP сервера (Стример)", false).withEn("Hide Server IP"));
 
     public CustomScoreboardModule() {
-        super("scoreboard", "Скорборд", "Стилизованный скорборд в духе Material 3", Category.HUD);
-        setEn("Scoreboard", "Material 3 styled scoreboard");
+        super("scoreboard", "Скорборд", "Стилизованный скорборд в стиле Material 3 Liquid Glass со скруглением и размытием", Category.HUD);
+        setEn("Scoreboard", "Material 3 styled scoreboard with custom scale, offsets, blur and streamer mode");
     }
 
     public String readTitle(MinecraftClient mc) {
@@ -58,14 +66,27 @@ public final class CustomScoreboardModule extends Module {
                 if (entry.hidden()) continue;
                 Team team = sb.getScoreHolderTeam(entry.owner());
                 String name = Team.decorateName(team, entry.name()).getString();
-                rows.add(new String[]{name, Integer.toString(entry.value())});
+                if (hideServerIp.isEnabled() && (name.contains(".ru") || name.contains(".net") || name.contains(".com") || name.contains("mc.") || name.contains("play."))) {
+                    name = "AetherClient.dev";
+                }
+                String score = Integer.toString(entry.value());
+                rows.add(new String[]{name, score});
             }
-            rows.sort(Comparator.comparingInt(r -> -Integer.parseInt(r[1])));
+
+            rows.sort(Comparator.comparingInt((String[] a) -> {
+                try {
+                    return Integer.parseInt(a[1]);
+                } catch (Exception e) {
+                    return 0;
+                }
+            }).reversed());
+
             if (rows.size() > 15) {
-                return new ArrayList<>(rows.subList(0, 15));
+                return rows.subList(0, 15);
             }
+            return rows;
         } catch (Throwable ignored) {
+            return rows;
         }
-        return rows;
     }
 }

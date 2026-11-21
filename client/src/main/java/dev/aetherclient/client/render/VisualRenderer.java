@@ -117,6 +117,30 @@ public final class VisualRenderer {
         float vy;
     }
 
+    private static final class WorldParticle {
+        double x, y, z;
+        double vx, vy, vz;
+        float size;
+        float rot;
+        float spinSpeed;
+        float age;
+        float maxAge;
+        float wobblePhase;
+    }
+
+    private static final class ActiveKillEffect {
+        double x, y, z;
+        float age;
+        float maxAge;
+        String type;
+        int color;
+        int secColor;
+        float scale;
+        double[] boltX;
+        double[] boltY;
+        double[] boltZ;
+    }
+
     private final WorldToScreen wts = new WorldToScreen();
     private final float[] ptScratch = new float[3];
     private final float[] ptScratch2 = new float[3];
@@ -180,6 +204,14 @@ public final class VisualRenderer {
     private final List<HitTint> hitTints = new ArrayList<>();
     private final List<AmbientParticle> ambientParticles = new ArrayList<>();
     private final List<FloatingDamage> floatingDamages = new ArrayList<>();
+    private final Pool<WorldParticle> worldParticlePool = new Pool<>(WorldParticle::new, p -> {
+        p.x = p.y = p.z = 0;
+        p.vx = p.vy = p.vz = 0;
+        p.size = p.rot = p.spinSpeed = p.age = p.maxAge = p.wobblePhase = 0f;
+    });
+    private final List<WorldParticle> worldParticles = new ArrayList<>();
+    private final List<ActiveKillEffect> activeKillEffects = new ArrayList<>();
+    private final java.util.Set<Integer> deadEntitiesTriggered = new java.util.HashSet<>();
     private final java.util.Map<Integer, Float> trackedHealth = new java.util.HashMap<>();
     private final Random rng = new Random(0xAE7E4L);
 
@@ -230,6 +262,11 @@ public final class VisualRenderer {
             activeTargetMs = System.currentTimeMillis();
             hitmarkerTimeMs = System.currentTimeMillis();
             spawnHitSparks(living);
+            if (!living.isAlive() || living.getHealth() <= 0f) {
+                if (deadEntitiesTriggered.add(living.getId())) {
+                    spawnKillEffect(living.getX(), living.getY(), living.getZ(), lastModuleManager, MinecraftClient.getInstance());
+                }
+            }
             HitTint tint = new HitTint();
             tint.entity = living;
             tint.timeMs = System.currentTimeMillis();
@@ -237,6 +274,46 @@ public final class VisualRenderer {
             while (hitTints.size() > 16) {
                 hitTints.remove(0);
             }
+        }
+    }
+
+    public void spawnKillEffect(double x, double y, double z, ModuleManager mm, MinecraftClient mc) {
+        if (mm == null || mm.killEffect == null || !mm.killEffect.isEnabled()) return;
+        ActiveKillEffect eff = new ActiveKillEffect();
+        eff.x = x;
+        eff.y = y;
+        eff.z = z;
+        eff.age = 0f;
+        eff.maxAge = mm.killEffect.duration.asFloat();
+        eff.type = mm.killEffect.effectType.getValue();
+        eff.color = mm.killEffect.color.getValue();
+        eff.secColor = mm.killEffect.secondaryColor.getValue();
+        eff.scale = mm.killEffect.scale.asFloat();
+
+        if ("Молния".equals(eff.type) || "Все сразу".equals(eff.type)) {
+            int segments = 12;
+            eff.boltX = new double[segments + 1];
+            eff.boltY = new double[segments + 1];
+            eff.boltZ = new double[segments + 1];
+            double topY = y + 16.0 * eff.scale;
+            for (int i = 0; i <= segments; i++) {
+                double prog = (double) i / segments;
+                eff.boltY[i] = topY - prog * (topY - y);
+                if (i == 0 || i == segments) {
+                    eff.boltX[i] = x;
+                    eff.boltZ[i] = z;
+                } else {
+                    eff.boltX[i] = x + (rng.nextDouble() - 0.5) * 2.2 * eff.scale;
+                    eff.boltZ[i] = z + (rng.nextDouble() - 0.5) * 2.2 * eff.scale;
+                }
+            }
+        }
+        activeKillEffects.add(eff);
+
+        dev.aetherclient.client.audio.SoundEngine.get().playKillSound(mc, mm.killEffect.soundEffect.getValue(), 0.9f);
+
+        if (mm.killEffect.screenShake.isEnabled()) {
+            damageFlash = Math.max(damageFlash, 0.6f);
         }
     }
 
@@ -280,6 +357,7 @@ public final class VisualRenderer {
         for (HitSpark s : hitSparks) hitSparkPool.release(s);
         for (AmbientParticle p : ambientParticles) particlePool.release(p);
         for (FloatingDamage fd : floatingDamages) floatingDamagePool.release(fd);
+        for (WorldParticle wp : worldParticles) worldParticlePool.release(wp);
         jumpCircles.clear();
         trailPoints.clear();
         breadcrumbPoints.clear();
@@ -287,6 +365,9 @@ public final class VisualRenderer {
         hitTints.clear();
         ambientParticles.clear();
         floatingDamages.clear();
+        worldParticles.clear();
+        activeKillEffects.clear();
+        deadEntitiesTriggered.clear();
         trackedHealth.clear();
         activeTarget = null;
         prevPlayerHealth = -1f;
@@ -323,6 +404,7 @@ public final class VisualRenderer {
             for (HitSpark s : hitSparks) hitSparkPool.release(s);
             for (FloatingDamage fd : floatingDamages) floatingDamagePool.release(fd);
             for (AmbientParticle p : ambientParticles) particlePool.release(p);
+            for (WorldParticle wp : worldParticles) worldParticlePool.release(wp);
             jumpCircles.clear();
             trailPoints.clear();
             breadcrumbPoints.clear();
@@ -330,6 +412,9 @@ public final class VisualRenderer {
             hitTints.clear();
             floatingDamages.clear();
             ambientParticles.clear();
+            worldParticles.clear();
+            activeKillEffects.clear();
+            deadEntitiesTriggered.clear();
             trackedHealth.clear();
             activeTarget = null;
             hasLastTrail = false;
@@ -399,6 +484,25 @@ public final class VisualRenderer {
             renderAmbientParticles(mc, mm, vg, palette, screenW, screenH, dt, weatherSnow);
         } else if (!ambientParticles.isEmpty()) {
             ambientParticles.clear();
+        }
+
+        if (activeTarget != null && (!activeTarget.isAlive() || activeTarget.getHealth() <= 0f)) {
+            if (deadEntitiesTriggered.add(activeTarget.getId())) {
+                spawnKillEffect(activeTarget.getX(), activeTarget.getY(), activeTarget.getZ(), mm, mc);
+            }
+        }
+
+        if (mm.worldParticles.isEnabled() && wts.isValid()) {
+            renderWorldParticles(mc, mm, vg, palette, dt);
+        } else if (!worldParticles.isEmpty()) {
+            for (WorldParticle wp : worldParticles) worldParticlePool.release(wp);
+            worldParticles.clear();
+        }
+
+        if (mm.killEffect.isEnabled() && wts.isValid()) {
+            renderKillEffects(mc, mm, vg, palette, dt);
+        } else if (!activeKillEffects.isEmpty()) {
+            activeKillEffects.clear();
         }
 
         if (mm.chams.isEnabled() && wts.isValid()) {
@@ -732,40 +836,255 @@ public final class VisualRenderer {
 
         targetSpinAngle += dt * mm.targetEsp.speed.asFloat() * 2.2f;
         Vec3d pos = activeTarget.getLerpedPos(tickDelta);
-        double rad = mm.targetEsp.radius.getValue();
-        double yBob = pos.y + activeTarget.getHeight() * (0.5 + 0.35 * Math.sin(targetSpinAngle * 1.15));
+        double pulse = mm.targetEsp.pulsing.isEnabled()
+                ? (1.0 + 0.12 * Math.sin(targetSpinAngle * mm.targetEsp.pulseSpeed.asFloat()))
+                : 1.0;
+        double rad = mm.targetEsp.radius.getValue() * pulse;
+        double h = mm.targetEsp.height.getValue();
+        float thick = mm.targetEsp.thickness.asFloat();
+        int segs = Math.max(16, Math.min(64, mm.targetEsp.points.getValue().intValue()));
+        boolean glow = mm.targetEsp.glow.isEnabled();
 
-        if ("Призрак".equals(mm.targetEsp.style.getValue())) {
-            int orbs = 10;
-            for (int i = 0; i < orbs; i++) {
-                double a = targetSpinAngle + (i * Math.PI * 2.0 / orbs);
-                double ox = pos.x + Math.cos(a) * rad;
-                double oz = pos.z + Math.sin(a) * rad;
-                double oy = pos.y + activeTarget.getHeight() * 0.5 + Math.sin(a * 2.0 + targetSpinAngle) * 0.25;
-                if (wts.project(ox, oy, oz, ptScratch)) {
-                    float r = 4.2f - (i % 3) * 0.7f;
-                    Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], r + 2.5f, AetherPalette.withAlpha(palette.primary, 65));
-                    Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], r, i % 2 == 0 ? palette.primary : palette.tertiary);
+        int pCol = palette.resolvePalette(mm.targetEsp.palette.getValue(), mm.targetEsp.primaryColor.getValue(), globalTime, 1.0f);
+        int sCol = palette.resolvePalette(mm.targetEsp.palette.getValue(), mm.targetEsp.secondaryColor.getValue(), globalTime, 1.0f);
+        String style = mm.targetEsp.style.getValue();
+
+        switch (style) {
+            case "Цилиндр Jello" -> {
+                int rings = Math.max(1, mm.targetEsp.ringCount.getValue().intValue());
+                for (int r = 0; r < rings; r++) {
+                    double yFrac = rings == 1 ? 0.5 : (double) r / (rings - 1);
+                    double yLevel = pos.y + yFrac * h + Math.sin(targetSpinAngle * 2.0 + r * 1.5) * 0.08;
+                    int ringCol = AetherPalette.lerpArgb(pCol, sCol, (float) yFrac);
+                    boolean hasPrev = false;
+                    float px = 0f, py = 0f;
+                    for (int i = 0; i <= segs; i++) {
+                        double a = targetSpinAngle + (i * Math.PI * 2.0 / segs);
+                        double wx = pos.x + Math.cos(a) * rad;
+                        double wz = pos.z + Math.sin(a) * rad;
+                        if (wts.project(wx, yLevel, wz, ptScratch)) {
+                            if (hasPrev) {
+                                if (glow) Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], thick + 3.0f, AetherPalette.withAlpha(ringCol, 50));
+                                Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], thick, AetherPalette.withAlpha(ringCol, 220));
+                            }
+                            px = ptScratch[0]; py = ptScratch[1]; hasPrev = true;
+                        } else {
+                            hasPrev = false;
+                        }
+                    }
+                }
+                // Vertical ribs connecting top and bottom rings
+                int ribCount = 6;
+                for (int i = 0; i < ribCount; i++) {
+                    double a = targetSpinAngle + (i * Math.PI * 2.0 / ribCount);
+                    double wx = pos.x + Math.cos(a) * rad;
+                    double wz = pos.z + Math.sin(a) * rad;
+                    if (wts.project(wx, pos.y, wz, ptScratch) && wts.project(wx, pos.y + h, wz, ptScratch2)) {
+                        if (glow) Render2D.drawLine(vg, ptScratch[0], ptScratch[1], ptScratch2[0], ptScratch2[1], thick + 2.0f, AetherPalette.withAlpha(pCol, 40));
+                        Render2D.drawLine(vg, ptScratch[0], ptScratch[1], ptScratch2[0], ptScratch2[1], thick * 0.85f, AetherPalette.withAlpha(sCol, 180));
+                    }
                 }
             }
-        } else {
-            int segs = 28;
-            boolean hasPrev = false;
-            float px = 0f, py = 0f;
-            for (int i = 0; i <= segs; i++) {
-                double a = targetSpinAngle + (i * Math.PI * 2.0 / segs);
-                double wx = pos.x + Math.cos(a) * rad;
-                double wz = pos.z + Math.sin(a) * rad;
-                if (wts.project(wx, yBob, wz, ptScratch)) {
-                    if (hasPrev) {
-                        int col = AetherPalette.lerpArgb(palette.primary, palette.tertiary, (float) i / segs);
-                        Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 2.2f, AetherPalette.withAlpha(col, 230));
+            case "Кольцо" -> {
+                int rings = Math.max(1, mm.targetEsp.ringCount.getValue().intValue());
+                for (int r = 0; r < rings; r++) {
+                    double tilt = (r * 0.45) - 0.2;
+                    double rRad = rad * (1.0 + r * 0.2);
+                    double cy = pos.y + activeTarget.getHeight() * (0.35 + r * 0.3) + Math.sin(targetSpinAngle * 1.5 + r) * 0.1;
+                    int col = AetherPalette.lerpArgb(pCol, sCol, (float) r / Math.max(1, rings - 1));
+                    boolean hasPrev = false;
+                    float px = 0f, py = 0f;
+                    for (int i = 0; i <= segs; i++) {
+                        double a = targetSpinAngle * (r % 2 == 0 ? 1.0 : -1.0) + (i * Math.PI * 2.0 / segs);
+                        double wx = pos.x + Math.cos(a) * rRad;
+                        double wz = pos.z + Math.sin(a) * rRad;
+                        double wy = cy + Math.sin(a) * Math.sin(tilt) * rRad * 0.5;
+                        if (wts.project(wx, wy, wz, ptScratch)) {
+                            if (hasPrev) {
+                                if (glow) Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], thick + 3.0f, AetherPalette.withAlpha(col, 60));
+                                Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], thick, AetherPalette.withAlpha(col, 235));
+                            }
+                            px = ptScratch[0]; py = ptScratch[1]; hasPrev = true;
+                        } else {
+                            hasPrev = false;
+                        }
                     }
-                    px = ptScratch[0];
-                    py = ptScratch[1];
-                    hasPrev = true;
-                } else {
-                    hasPrev = false;
+                }
+            }
+            case "Призма" -> {
+                double apexTopY = pos.y + h + 0.25;
+                double apexBotY = pos.y - 0.1;
+                double midY = pos.y + h * 0.5;
+                int vCount = 6;
+                float[][] midPts = new float[vCount][2];
+                boolean[] midVis = new boolean[vCount];
+                boolean topVis = wts.project(pos.x, apexTopY, pos.z, ptScratch);
+                float topX = ptScratch[0], topY = ptScratch[1];
+                boolean botVis = wts.project(pos.x, apexBotY, pos.z, ptScratch2);
+                float botX = ptScratch2[0], botY = ptScratch2[1];
+
+                for (int i = 0; i < vCount; i++) {
+                    double a = targetSpinAngle + (i * Math.PI * 2.0 / vCount);
+                    double vx = pos.x + Math.cos(a) * rad;
+                    double vz = pos.z + Math.sin(a) * rad;
+                    if (wts.project(vx, midY, vz, ptScratch3)) {
+                        midPts[i][0] = ptScratch3[0];
+                        midPts[i][1] = ptScratch3[1];
+                        midVis[i] = true;
+                    }
+                }
+                for (int i = 0; i < vCount; i++) {
+                    int next = (i + 1) % vCount;
+                    if (midVis[i] && midVis[next]) {
+                        Render2D.drawLine(vg, midPts[i][0], midPts[i][1], midPts[next][0], midPts[next][1], thick, AetherPalette.withAlpha(sCol, 220));
+                    }
+                    if (topVis && midVis[i]) {
+                        if (glow) Render2D.drawLine(vg, topX, topY, midPts[i][0], midPts[i][1], thick + 2.5f, AetherPalette.withAlpha(pCol, 50));
+                        Render2D.drawLine(vg, topX, topY, midPts[i][0], midPts[i][1], thick * 0.9f, AetherPalette.withAlpha(pCol, 220));
+                    }
+                    if (botVis && midVis[i]) {
+                        Render2D.drawLine(vg, botX, botY, midPts[i][0], midPts[i][1], thick * 0.9f, AetherPalette.withAlpha(sCol, 190));
+                    }
+                }
+            }
+            case "Кристалл Sims" -> {
+                double cY = pos.y + activeTarget.getHeight() + 0.5 + Math.sin(targetSpinAngle * 2.0) * 0.12;
+                double cRad = 0.28 * rad;
+                double topY = cY + 0.48;
+                double botY = cY - 0.48;
+                int sides = 6;
+                float[][] cPts = new float[sides][2];
+                boolean[] cVis = new boolean[sides];
+                boolean topVis = wts.project(pos.x, topY, pos.z, ptScratch);
+                float topX = ptScratch[0], topYScr = ptScratch[1];
+                boolean botVis = wts.project(pos.x, botY, pos.z, ptScratch2);
+                float botX = ptScratch2[0], botYScr = ptScratch2[1];
+
+                for (int i = 0; i < sides; i++) {
+                    double a = targetSpinAngle * 1.5 + (i * Math.PI * 2.0 / sides);
+                    double cx = pos.x + Math.cos(a) * cRad;
+                    double cz = pos.z + Math.sin(a) * cRad;
+                    if (wts.project(cx, cY, cz, ptScratch3)) {
+                        cPts[i][0] = ptScratch3[0];
+                        cPts[i][1] = ptScratch3[1];
+                        cVis[i] = true;
+                    }
+                }
+                for (int i = 0; i < sides; i++) {
+                    int next = (i + 1) % sides;
+                    if (cVis[i] && cVis[next]) {
+                        Render2D.drawLine(vg, cPts[i][0], cPts[i][1], cPts[next][0], cPts[next][1], thick, AetherPalette.withAlpha(pCol, 240));
+                    }
+                    if (topVis && cVis[i]) {
+                        if (glow) Render2D.drawLine(vg, topX, topYScr, cPts[i][0], cPts[i][1], thick + 2f, AetherPalette.withAlpha(pCol, 70));
+                        Render2D.drawLine(vg, topX, topYScr, cPts[i][0], cPts[i][1], thick * 0.9f, AetherPalette.withAlpha(pCol, 240));
+                    }
+                    if (botVis && cVis[i]) {
+                        Render2D.drawLine(vg, botX, botYScr, cPts[i][0], cPts[i][1], thick * 0.9f, AetherPalette.withAlpha(sCol, 220));
+                    }
+                }
+            }
+            case "Спираль ДНК" -> {
+                int helixSteps = 32;
+                boolean prev1 = false, prev2 = false;
+                float p1x = 0, p1y = 0, p2x = 0, p2y = 0;
+                for (int step = 0; step <= helixSteps; step++) {
+                    double frac = (double) step / helixSteps;
+                    double y = pos.y + frac * h;
+                    double a = targetSpinAngle + frac * Math.PI * 4.0;
+                    double x1 = pos.x + Math.cos(a) * rad;
+                    double z1 = pos.z + Math.sin(a) * rad;
+                    double x2 = pos.x + Math.cos(a + Math.PI) * rad;
+                    double z2 = pos.z + Math.sin(a + Math.PI) * rad;
+
+                    boolean vis1 = wts.project(x1, y, z1, ptScratch);
+                    float cur1x = ptScratch[0], cur1y = ptScratch[1];
+                    boolean vis2 = wts.project(x2, y, z2, ptScratch2);
+                    float cur2x = ptScratch2[0], cur2y = ptScratch2[1];
+
+                    int col1 = AetherPalette.lerpArgb(pCol, sCol, (float) frac);
+                    int col2 = AetherPalette.lerpArgb(sCol, pCol, (float) frac);
+
+                    if (prev1 && vis1) {
+                        if (glow) Render2D.drawLine(vg, p1x, p1y, cur1x, cur1y, thick + 2.5f, AetherPalette.withAlpha(col1, 50));
+                        Render2D.drawLine(vg, p1x, p1y, cur1x, cur1y, thick, AetherPalette.withAlpha(col1, 230));
+                    }
+                    if (prev2 && vis2) {
+                        if (glow) Render2D.drawLine(vg, p2x, p2y, cur2x, cur2y, thick + 2.5f, AetherPalette.withAlpha(col2, 50));
+                        Render2D.drawLine(vg, p2x, p2y, cur2x, cur2y, thick, AetherPalette.withAlpha(col2, 230));
+                    }
+
+                    // Horizontal connecting rung
+                    if (step % 3 == 0 && vis1 && vis2) {
+                        Render2D.drawLine(vg, cur1x, cur1y, cur2x, cur2y, thick * 0.8f, AetherPalette.withAlpha(0xFFE2E8F0, 160));
+                    }
+
+                    if (vis1) { p1x = cur1x; p1y = cur1y; prev1 = true; } else prev1 = false;
+                    if (vis2) { p2x = cur2x; p2y = cur2y; prev2 = true; } else prev2 = false;
+                }
+            }
+            case "Маячок" -> {
+                double beamTopY = pos.y + 10.0;
+                double bRad = rad * 0.45;
+                int beamRays = 4;
+                for (int i = 0; i < beamRays; i++) {
+                    double a = (i * Math.PI * 2.0 / beamRays);
+                    double rx = pos.x + Math.cos(a) * bRad;
+                    double rz = pos.z + Math.sin(a) * bRad;
+                    if (wts.project(rx, pos.y, rz, ptScratch) && wts.project(rx, beamTopY, rz, ptScratch2)) {
+                        if (glow) Render2D.drawLine(vg, ptScratch[0], ptScratch[1], ptScratch2[0], ptScratch2[1], thick + 3f, AetherPalette.withAlpha(pCol, 40));
+                        Render2D.drawLine(vg, ptScratch[0], ptScratch[1], ptScratch2[0], ptScratch2[1], thick, AetherPalette.withAlpha(pCol, 190));
+                    }
+                }
+                // Ascending pulse rings
+                for (int p = 0; p < 3; p++) {
+                    double ringY = pos.y + ((globalTime * 3.5 + p * 3.3) % 10.0);
+                    boolean hasPrev = false;
+                    float px = 0f, py = 0f;
+                    for (int i = 0; i <= segs; i++) {
+                        double a = targetSpinAngle * 2.0 + (i * Math.PI * 2.0 / segs);
+                        double wx = pos.x + Math.cos(a) * rad;
+                        double wz = pos.z + Math.sin(a) * rad;
+                        if (wts.project(wx, ringY, wz, ptScratch)) {
+                            if (hasPrev) {
+                                Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], thick * 0.85f, AetherPalette.withAlpha(sCol, 175));
+                            }
+                            px = ptScratch[0]; py = ptScratch[1]; hasPrev = true;
+                        } else {
+                            hasPrev = false;
+                        }
+                    }
+                }
+            }
+            default -> { // "Призрак"
+                int orbs = 10;
+                for (int i = 0; i < orbs; i++) {
+                    double a = targetSpinAngle + (i * Math.PI * 2.0 / orbs);
+                    double ox = pos.x + Math.cos(a) * rad;
+                    double oz = pos.z + Math.sin(a) * rad;
+                    double oy = pos.y + activeTarget.getHeight() * 0.5 + Math.sin(a * 2.0 + targetSpinAngle) * 0.25;
+                    if (wts.project(ox, oy, oz, ptScratch)) {
+                        float r = 4.2f - (i % 3) * 0.7f;
+                        Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], r + 2.5f, AetherPalette.withAlpha(pCol, 65));
+                        Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], r, i % 2 == 0 ? pCol : sCol);
+                    }
+                }
+            }
+        }
+
+        // Orbit particles
+        if (mm.targetEsp.orbitParticles.isEnabled()) {
+            int sparkCount = 6;
+            for (int i = 0; i < sparkCount; i++) {
+                double sa = targetSpinAngle * (1.1 + i * 0.25) + i * 1.05;
+                double sRad = rad * (0.8 + 0.35 * Math.sin(sa * 0.7));
+                double sx = pos.x + Math.cos(sa) * sRad;
+                double sz = pos.z + Math.sin(sa) * sRad;
+                double sy = pos.y + activeTarget.getHeight() * 0.5 + Math.sin(sa * 1.8) * 0.45;
+                if (wts.project(sx, sy, sz, ptScratch)) {
+                    int sc = i % 2 == 0 ? pCol : sCol;
+                    Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], 3.8f, AetherPalette.withAlpha(sc, 80));
+                    Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], 1.8f, AetherPalette.withAlpha(0xFFFFFFFF, 230));
                 }
             }
         }
@@ -965,8 +1284,13 @@ public final class VisualRenderer {
         float sz = mm.hitParticles.size.asFloat();
         String shape = mm.hitParticles.shape.getValue();
         boolean gravity = mm.hitParticles.gravity.isEnabled();
+        float gravScale = mm.hitParticles.gravityScale.asFloat();
         boolean glow = mm.hitParticles.glow.isEnabled();
-        int baseCol = palette.resolvePalette(mm.hitParticles.palette.getValue(), mm.hitParticles.color.getValue(), globalTime, 1.0f);
+        boolean bounce = mm.hitParticles.bounce.isEnabled();
+        boolean fadeScale = mm.hitParticles.fadeScale.isEnabled();
+
+        int primaryCol = palette.resolvePalette(mm.hitParticles.palette.getValue(), mm.hitParticles.color.getValue(), globalTime, 1.0f);
+        int secondaryCol = palette.resolvePalette(mm.hitParticles.palette.getValue(), mm.hitParticles.secondaryColor.getValue(), globalTime, 1.0f);
 
         Iterator<HitSpark> it = hitSparks.iterator();
         while (it.hasNext()) {
@@ -978,38 +1302,83 @@ public final class VisualRenderer {
                 continue;
             }
             if (gravity) {
-                s.vy -= 5.0 * dt;
+                s.vy -= 5.0 * gravScale * dt;
             }
             s.x += s.vx * dt;
             s.y += s.vy * dt;
             s.z += s.vz * dt;
+
+            if (bounce && s.y <= (activeTarget != null ? activeTarget.getY() : 0.0) && s.vy < 0) {
+                s.vy = -s.vy * 0.55;
+                s.vx *= 0.8;
+                s.vz *= 0.8;
+            }
+
             if (wts.project(s.x, s.y, s.z, ptScratch)) {
                 float alpha = 1f - (s.age / s.maxAge);
                 int col = "Тема".equals(mm.hitParticles.palette.getValue())
                         ? AetherPalette.lerpArgb(palette.tertiary, palette.primary, alpha)
-                        : baseCol;
-                float currentSz = sz * (0.6f + 0.4f * alpha);
+                        : AetherPalette.lerpArgb(primaryCol, secondaryCol, 1f - alpha);
+                float currentSz = fadeScale ? sz * (0.4f + 0.6f * alpha) : sz;
                 int colAlpha = AetherPalette.withAlpha(col, Math.round(alpha * 240f));
                 float sx = ptScratch[0];
                 float sy = ptScratch[1];
 
-                if ("Звездочки".equals(shape)) {
-                    Render2D.drawLine(vg, sx - currentSz, sy, sx + currentSz, sy, 1.5f, colAlpha);
-                    Render2D.drawLine(vg, sx, sy - currentSz, sx, sy + currentSz, 1.5f, colAlpha);
-                } else if ("Пузыри".equals(shape)) {
-                    Render2D.drawRing(vg, sx, sy, currentSz, 1.2f, colAlpha);
-                    Render2D.drawCircle(vg, sx - currentSz * 0.3f, sy - currentSz * 0.3f, currentSz * 0.3f, 0xFFFFFFFF);
-                } else if ("Капли".equals(shape)) {
-                    Render2D.drawLine(vg, sx, sy, sx, sy + currentSz * 1.6f, 1.8f, colAlpha);
-                } else if ("Огонь".equals(shape)) {
-                    int fireCol = AetherPalette.lerpArgb(col, 0xFFFFE57F, alpha);
-                    Render2D.drawCircle(vg, sx, sy, currentSz * 1.5f, AetherPalette.withAlpha(fireCol, Math.round(alpha * 80f)));
-                    Render2D.drawCircle(vg, sx, sy, currentSz, AetherPalette.withAlpha(fireCol, Math.round(alpha * 230f)));
-                } else { // "Искры"
-                    if (glow) {
-                        Render2D.drawCircle(vg, sx, sy, currentSz * 2.2f, AetherPalette.withAlpha(col, Math.round(alpha * 70f)));
+                switch (shape) {
+                    case "Звездочки" -> {
+                        if (glow) {
+                            Render2D.drawLine(vg, sx - currentSz * 1.5f, sy, sx + currentSz * 1.5f, sy, 2.5f, AetherPalette.withAlpha(col, Math.round(alpha * 70f)));
+                            Render2D.drawLine(vg, sx, sy - currentSz * 1.5f, sx, sy + currentSz * 1.5f, 2.5f, AetherPalette.withAlpha(col, Math.round(alpha * 70f)));
+                        }
+                        Render2D.drawLine(vg, sx - currentSz, sy, sx + currentSz, sy, 1.6f, colAlpha);
+                        Render2D.drawLine(vg, sx, sy - currentSz, sx, sy + currentSz, 1.6f, colAlpha);
                     }
-                    Render2D.drawCircle(vg, sx, sy, currentSz, colAlpha);
+                    case "Пузыри" -> {
+                        Render2D.drawRing(vg, sx, sy, currentSz, 1.2f, colAlpha);
+                        Render2D.drawCircle(vg, sx - currentSz * 0.35f, sy - currentSz * 0.35f, currentSz * 0.28f, AetherPalette.withAlpha(0xFFFFFFFF, Math.round(alpha * 220f)));
+                    }
+                    case "Капли" -> {
+                        Render2D.drawLine(vg, sx, sy, sx + (float) s.vx * 1.2f, sy + (float) s.vy * 1.2f + currentSz * 1.5f, 1.8f, colAlpha);
+                    }
+                    case "Огонь" -> {
+                        int fireCol = AetherPalette.lerpArgb(col, 0xFFFFD54F, alpha);
+                        Render2D.drawCircle(vg, sx, sy, currentSz * 1.8f, AetherPalette.withAlpha(fireCol, Math.round(alpha * 60f)));
+                        Render2D.drawCircle(vg, sx, sy, currentSz, AetherPalette.withAlpha(fireCol, Math.round(alpha * 230f)));
+                    }
+                    case "Молния" -> {
+                        float off1 = (float) Math.sin(s.age * 20.0) * currentSz * 0.6f;
+                        float off2 = -(float) Math.cos(s.age * 20.0) * currentSz * 0.6f;
+                        Render2D.drawLine(vg, sx - currentSz, sy - currentSz, sx + off1, sy, 1.5f, colAlpha);
+                        Render2D.drawLine(vg, sx + off1, sy, sx + off2, sy + currentSz * 0.5f, 1.5f, colAlpha);
+                        Render2D.drawLine(vg, sx + off2, sy + currentSz * 0.5f, sx + currentSz, sy + currentSz, 1.5f, colAlpha);
+                    }
+                    case "Сердечки" -> {
+                        float r = currentSz * 0.5f;
+                        int heartCol = AetherPalette.withAlpha(0xFFFF4081, Math.round(alpha * 240f));
+                        Render2D.drawCircle(vg, sx - r * 0.5f, sy - r * 0.4f, r * 0.55f, heartCol);
+                        Render2D.drawCircle(vg, sx + r * 0.5f, sy - r * 0.4f, r * 0.55f, heartCol);
+                        Render2D.drawLine(vg, sx - r, sy - r * 0.2f, sx, sy + r, 1.4f, heartCol);
+                        Render2D.drawLine(vg, sx + r, sy - r * 0.2f, sx, sy + r, 1.4f, heartCol);
+                    }
+                    case "Кровь / Редстоун" -> {
+                        int bloodCol = AetherPalette.withAlpha(0xFFDC2626, Math.round(alpha * 250f));
+                        Render2D.drawRoundedRect(vg, sx - currentSz * 0.5f, sy - currentSz * 0.5f, currentSz, currentSz, 0f, bloodCol);
+                    }
+                    case "Магические руны" -> {
+                        float rot = s.age * 4.0f;
+                        float cos = (float) Math.cos(rot) * currentSz;
+                        float sin = (float) Math.sin(rot) * currentSz;
+                        Render2D.drawLine(vg, sx - cos, sy - sin, sx - sin, sy + cos, 1.4f, colAlpha);
+                        Render2D.drawLine(vg, sx - sin, sy + cos, sx + cos, sy + sin, 1.4f, colAlpha);
+                        Render2D.drawLine(vg, sx + cos, sy + sin, sx + sin, sy - cos, 1.4f, colAlpha);
+                        Render2D.drawLine(vg, sx + sin, sy - cos, sx - cos, sy - sin, 1.4f, colAlpha);
+                    }
+                    default -> { // "Искры"
+                        if (glow) {
+                            Render2D.drawCircle(vg, sx, sy, currentSz * 2.2f, AetherPalette.withAlpha(col, Math.round(alpha * 70f)));
+                        }
+                        Render2D.drawCircle(vg, sx, sy, currentSz, colAlpha);
+                    }
                 }
             }
         }
@@ -1029,11 +1398,14 @@ public final class VisualRenderer {
         float g = mm.crosshair.gap.asFloat();
         float thick = mm.crosshair.thickness.asFloat();
         String style = mm.crosshair.style.getValue();
+        boolean outline = mm.crosshair.outline.isEnabled();
+        float outW = outline ? mm.crosshair.outlineWidth.asFloat() : 0f;
+        int outCol = 0xEE000000;
 
         // Dynamic movement spread
-        if ("Динамик".equals(style) && mc.player != null) {
+        if (mm.crosshair.dynamicSpread.isEnabled() && mc.player != null) {
             double spd = Math.hypot(mc.player.getX() - mc.player.lastRenderX, mc.player.getZ() - mc.player.lastRenderZ);
-            g += (float) Math.min(8.0, spd * 18.0);
+            g += (float) Math.min(10.0, spd * 22.0);
         }
 
         // Attack recoil expansion
@@ -1047,28 +1419,91 @@ public final class VisualRenderer {
         switch (style) {
             case "Точка" -> {
                 float dotR = mm.crosshair.dotRadius.asFloat();
+                if (outline) Render2D.drawCircle(vg, cx, cy, dotR + outW, outCol);
                 Render2D.drawCircle(vg, cx, cy, dotR, accent);
                 Render2D.drawRing(vg, cx, cy, dotR + 1.8f, thick, AetherPalette.withAlpha(col, 160));
             }
             case "Кольцо" -> {
+                if (outline) Render2D.drawRing(vg, cx, cy, sz + g * 0.5f, thick + outW * 2f, outCol);
                 Render2D.drawRing(vg, cx, cy, sz + g * 0.5f, thick, AetherPalette.withAlpha(col, 225));
                 if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
                     Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
                 }
             }
             case "Шеврон" -> {
+                if (outline) {
+                    Render2D.drawLine(vg, cx - sz, cy + sz * 0.6f, cx, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy, cx + sz, cy + sz * 0.6f, thick + outW * 2f, outCol);
+                }
                 Render2D.drawLine(vg, cx - sz, cy + sz * 0.6f, cx, cy, thick, col);
                 Render2D.drawLine(vg, cx, cy, cx + sz, cy + sz * 0.6f, thick, col);
                 if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
                     Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
                 }
             }
-            default -> {
+            case "T-образный" -> {
+                if (outline) {
+                    Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick + outW * 2f, outCol);
+                }
+                Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick, col);
+                Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick, col);
+                Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick, col);
+                if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
+                    Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
+                }
+            }
+            case "Окружность с перекрестием" -> {
+                if (outline) {
+                    Render2D.drawRing(vg, cx, cy, sz + g * 0.5f, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy - g - sz, cx, cy - g, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick + outW * 2f, outCol);
+                }
+                Render2D.drawRing(vg, cx, cy, sz + g * 0.5f, thick, AetherPalette.withAlpha(col, 180));
                 Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick, col);
                 Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick, col);
                 Render2D.drawLine(vg, cx, cy - g - sz, cx, cy - g, thick, col);
                 Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick, col);
                 if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
+                    Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
+                }
+            }
+            case "Треугольник" -> {
+                float triH = sz * 1.3f;
+                float triHalfW = sz * 0.85f;
+                if (outline) {
+                    Render2D.drawLine(vg, cx, cy - triH * 0.5f, cx - triHalfW, cy + triH * 0.5f, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx - triHalfW, cy + triH * 0.5f, cx + triHalfW, cy + triH * 0.5f, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx + triHalfW, cy + triH * 0.5f, cx, cy - triH * 0.5f, thick + outW * 2f, outCol);
+                }
+                Render2D.drawLine(vg, cx, cy - triH * 0.5f, cx - triHalfW, cy + triH * 0.5f, thick, col);
+                Render2D.drawLine(vg, cx - triHalfW, cy + triH * 0.5f, cx + triHalfW, cy + triH * 0.5f, thick, col);
+                Render2D.drawLine(vg, cx + triHalfW, cy + triH * 0.5f, cx, cy - triH * 0.5f, thick, col);
+                if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
+                    Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
+                }
+            }
+            default -> { // "Крест" и "Динамик"
+                if (outline) {
+                    Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy - g - sz, cx, cy - g, thick + outW * 2f, outCol);
+                    Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick + outW * 2f, outCol);
+                }
+                Render2D.drawLine(vg, cx - g - sz, cy, cx - g, cy, thick, col);
+                Render2D.drawLine(vg, cx + g, cy, cx + g + sz, cy, thick, col);
+                Render2D.drawLine(vg, cx, cy - g - sz, cx, cy - g, thick, col);
+                Render2D.drawLine(vg, cx, cy + g, cx, cy + g + sz, thick, col);
+                if (mm.crosshair.centerDot.isEnabled()) {
+                    if (outline) Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat() + outW, outCol);
                     Render2D.drawCircle(vg, cx, cy, mm.crosshair.dotRadius.asFloat(), accent);
                 }
             }
@@ -1097,7 +1532,8 @@ public final class VisualRenderer {
                 float hitProg = 1f - (float) elapsed / 240f;
                 float hitLen = 4.5f + (1f - hitProg) * 3f;
                 float hitGap = 3.5f + (1f - hitProg) * 2.5f;
-                int hitCol = AetherPalette.withAlpha(0xFFFF5F6D, Math.round(255f * hitProg));
+                int baseHitCol = mm.crosshair.hitmarkerColor.getValue();
+                int hitCol = AetherPalette.withAlpha(baseHitCol, Math.round(255f * hitProg));
                 Render2D.drawLine(vg, cx - hitGap - hitLen, cy - hitGap - hitLen, cx - hitGap, cy - hitGap, 1.8f, hitCol);
                 Render2D.drawLine(vg, cx + hitGap, cy - hitGap, cx + hitGap + hitLen, cy - hitGap - hitLen, 1.8f, hitCol);
                 Render2D.drawLine(vg, cx - hitGap - hitLen, cy + hitGap + hitLen, cx - hitGap, cy + hitGap, 1.8f, hitCol);
@@ -1189,6 +1625,231 @@ public final class VisualRenderer {
                 } else {
                     Render2D.drawCircle(vg, px, py, screenSz * 1.6f, AetherPalette.withAlpha(baseCol, Math.round(pulse * 42f)));
                     Render2D.drawCircle(vg, px, py, screenSz, AetherPalette.withAlpha(baseCol, Math.round(pulse * 200f)));
+                }
+            }
+        }
+    }
+
+    private void renderWorldParticles(MinecraftClient mc, ModuleManager mm, long vg, AetherPalette palette, float dt) {
+        if (mc.player == null || !wts.isValid()) return;
+        int targetCount = (int) Math.round(mm.worldParticles.count.getValue());
+        float radius = mm.worldParticles.radius.asFloat();
+        float fallSpeed = mm.worldParticles.fallSpeed.asFloat();
+        float wind = mm.worldParticles.windDrift.asFloat();
+        float pSize = mm.worldParticles.size.asFloat();
+        boolean glow = mm.worldParticles.glow.isEnabled();
+        boolean spin = mm.worldParticles.spin.isEnabled();
+        String style = mm.worldParticles.style.getValue();
+
+        int pCol = palette.resolvePalette(mm.worldParticles.palette.getValue(), mm.worldParticles.color.getValue(), globalTime, 1.0f);
+        int sCol = palette.resolvePalette(mm.worldParticles.palette.getValue(), mm.worldParticles.secondaryColor.getValue(), globalTime, 1.0f);
+
+        while (worldParticles.size() < targetCount) {
+            WorldParticle p = worldParticlePool.acquire();
+            double ang = rng.nextDouble() * Math.PI * 2.0;
+            double r = rng.nextDouble() * radius;
+            p.x = mc.player.getX() + Math.cos(ang) * r;
+            p.y = mc.player.getY() + (rng.nextDouble() - 0.2) * 12.0;
+            p.z = mc.player.getZ() + Math.sin(ang) * r;
+            p.vx = (rng.nextDouble() - 0.5) * 0.4 + wind;
+            p.vy = ("Угли".equals(style) || "Пузыри".equals(style))
+                    ? (0.3 + rng.nextDouble() * 0.6) * fallSpeed
+                    : -(0.3 + rng.nextDouble() * 0.7) * fallSpeed;
+            p.vz = (rng.nextDouble() - 0.5) * 0.4;
+            p.size = pSize * (0.7f + rng.nextFloat() * 0.6f);
+            p.rot = rng.nextFloat() * 6.28f;
+            p.spinSpeed = (rng.nextFloat() - 0.5f) * 3.5f;
+            p.age = 0f;
+            p.maxAge = 4.0f + rng.nextFloat() * 6.0f;
+            p.wobblePhase = rng.nextFloat() * 6.28f;
+            worldParticles.add(p);
+        }
+        while (worldParticles.size() > targetCount) {
+            worldParticlePool.release(worldParticles.remove(worldParticles.size() - 1));
+        }
+
+        Iterator<WorldParticle> it = worldParticles.iterator();
+        while (it.hasNext()) {
+            WorldParticle p = it.next();
+            p.age += dt;
+            if (p.age >= p.maxAge) {
+                it.remove();
+                worldParticlePool.release(p);
+                continue;
+            }
+            p.wobblePhase += dt * 2.0f;
+            p.rot += spin ? p.spinSpeed * dt : 0f;
+            p.x += (p.vx + Math.sin(p.wobblePhase) * 0.35) * dt;
+            p.y += p.vy * dt;
+            p.z += (p.vz + Math.cos(p.wobblePhase) * 0.35) * dt;
+
+            double dx = p.x - mc.player.getX();
+            double dy = p.y - mc.player.getY();
+            double dz = p.z - mc.player.getZ();
+            if (dx * dx + dz * dz > radius * radius || dy > 12.0 || dy < -4.0) {
+                it.remove();
+                worldParticlePool.release(p);
+                continue;
+            }
+
+            if (wts.project(p.x, p.y, p.z, ptScratch)) {
+                float alpha = 1.0f;
+                if (p.age < 0.6f) alpha = p.age / 0.6f;
+                else if (p.age > p.maxAge - 0.8f) alpha = (p.maxAge - p.age) / 0.8f;
+
+                float depth = Math.max(0.6f, ptScratch[2]);
+                float sz = Math.max(1.0f, Math.min(20f, p.size * 8.5f / depth));
+                float sx = ptScratch[0];
+                float sy = ptScratch[1];
+
+                int col = AetherPalette.lerpArgb(pCol, sCol, 0.5f + 0.5f * (float) Math.sin(p.wobblePhase));
+                int colAlpha = AetherPalette.withAlpha(col, Math.round(alpha * 220f));
+
+                switch (style) {
+                    case "Сакура" -> {
+                        float cos = (float) Math.cos(p.rot) * sz;
+                        float sin = (float) Math.sin(p.rot) * sz * 0.55f;
+                        int sakuraCol = AetherPalette.withAlpha(0xFFFF85A1, Math.round(alpha * 230f));
+                        Render2D.drawLine(vg, sx - cos, sy - sin, sx + cos, sy + sin, sz * 0.7f, sakuraCol);
+                    }
+                    case "Светлячки" -> {
+                        float pulse = 0.5f + 0.5f * (float) Math.sin(p.wobblePhase * 2.2f);
+                        int fireflyCol = AetherPalette.withAlpha(0xFFE2F952, Math.round(alpha * pulse * 250f));
+                        if (glow) Render2D.drawCircle(vg, sx, sy, sz * 2.5f, AetherPalette.withAlpha(0xFFE2F952, Math.round(alpha * pulse * 60f)));
+                        Render2D.drawCircle(vg, sx, sy, sz, fireflyCol);
+                    }
+                    case "Звёздная пыль" -> {
+                        if (glow) Render2D.drawCircle(vg, sx, sy, sz * 2.0f, AetherPalette.withAlpha(col, Math.round(alpha * 55f)));
+                        Render2D.drawLine(vg, sx - sz, sy, sx + sz, sy, 1.2f, colAlpha);
+                        Render2D.drawLine(vg, sx, sy - sz, sx, sy + sz, 1.2f, colAlpha);
+                    }
+                    case "Угли" -> {
+                        int emberCol = AetherPalette.lerpArgb(0xFFFF4500, 0xFFFFD700, 0.5f + 0.5f * (float) Math.sin(p.wobblePhase));
+                        if (glow) Render2D.drawCircle(vg, sx, sy, sz * 2.2f, AetherPalette.withAlpha(emberCol, Math.round(alpha * 50f)));
+                        Render2D.drawCircle(vg, sx, sy, sz, AetherPalette.withAlpha(emberCol, Math.round(alpha * 235f)));
+                    }
+                    case "Снежинки" -> {
+                        int snowCol = AetherPalette.withAlpha(0xFFF1F5F9, Math.round(alpha * 240f));
+                        Render2D.drawCircle(vg, sx, sy, sz * 0.9f, snowCol);
+                    }
+                    case "Руны" -> {
+                        float cos = (float) Math.cos(p.rot) * sz;
+                        float sin = (float) Math.sin(p.rot) * sz;
+                        Render2D.drawLine(vg, sx - cos, sy - sin, sx + sin, sy - cos, 1.3f, colAlpha);
+                        Render2D.drawLine(vg, sx + sin, sy - cos, sx + cos, sy + sin, 1.3f, colAlpha);
+                        Render2D.drawLine(vg, sx + cos, sy + sin, sx - sin, sy + cos, 1.3f, colAlpha);
+                        Render2D.drawLine(vg, sx - sin, sy + cos, sx - cos, sy - sin, 1.3f, colAlpha);
+                    }
+                    default -> { // "Пузыри"
+                        Render2D.drawRing(vg, sx, sy, sz, 1.2f, colAlpha);
+                        Render2D.drawCircle(vg, sx - sz * 0.35f, sy - sz * 0.35f, sz * 0.25f, AetherPalette.withAlpha(0xFFFFFFFF, Math.round(alpha * 200f)));
+                    }
+                }
+            }
+        }
+    }
+
+    private void renderKillEffects(MinecraftClient mc, ModuleManager mm, long vg, AetherPalette palette, float dt) {
+        if (!wts.isValid()) return;
+        boolean glow = mm.killEffect.glow.isEnabled();
+
+        Iterator<ActiveKillEffect> it = activeKillEffects.iterator();
+        while (it.hasNext()) {
+            ActiveKillEffect eff = it.next();
+            eff.age += dt;
+            if (eff.age >= eff.maxAge) {
+                it.remove();
+                continue;
+            }
+            float prog = eff.age / eff.maxAge;
+            float alpha = 1.0f - prog;
+            int colAlpha = AetherPalette.withAlpha(eff.color, Math.round(alpha * 255f));
+            int secColAlpha = AetherPalette.withAlpha(eff.secColor, Math.round(alpha * 255f));
+
+            boolean doLightning = "Молния".equals(eff.type) || "Все сразу".equals(eff.type);
+            boolean doWave = "Взрывная волна".equals(eff.type) || "Все сразу".equals(eff.type);
+            boolean doWings = "Ангельские крылья".equals(eff.type) || "Все сразу".equals(eff.type);
+            boolean doBlood = "Кровавый всплеск".equals(eff.type);
+            boolean doSoul = "Череп души".equals(eff.type);
+
+            if (doLightning && eff.boltX != null) {
+                boolean prevVis = false;
+                float px = 0, py = 0;
+                for (int i = 0; i < eff.boltX.length; i++) {
+                    if (wts.project(eff.boltX[i], eff.boltY[i], eff.boltZ[i], ptScratch)) {
+                        if (prevVis) {
+                            if (glow) Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 7.0f, AetherPalette.withAlpha(eff.color, Math.round(alpha * 80f)));
+                            Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 3.0f, colAlpha);
+                            Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 1.2f, AetherPalette.withAlpha(0xFFFFFFFF, Math.round(alpha * 250f)));
+                        }
+                        px = ptScratch[0]; py = ptScratch[1]; prevVis = true;
+                    } else {
+                        prevVis = false;
+                    }
+                }
+            }
+
+            if (doWave) {
+                double waveR = (prog * 3.8 + 0.3) * eff.scale;
+                int segs = 24;
+                boolean prevVis = false;
+                float px = 0, py = 0;
+                for (int i = 0; i <= segs; i++) {
+                    double a = (i * Math.PI * 2.0 / segs);
+                    double wx = eff.x + Math.cos(a) * waveR;
+                    double wz = eff.z + Math.sin(a) * waveR;
+                    if (wts.project(wx, eff.y + 0.08, wz, ptScratch)) {
+                        if (prevVis) {
+                            if (glow) Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 6.0f, AetherPalette.withAlpha(eff.secColor, Math.round(alpha * 60f)));
+                            Render2D.drawLine(vg, px, py, ptScratch[0], ptScratch[1], 2.4f, secColAlpha);
+                        }
+                        px = ptScratch[0]; py = ptScratch[1]; prevVis = true;
+                    } else {
+                        prevVis = false;
+                    }
+                }
+            }
+
+            if (doWings) {
+                double wy = eff.y + prog * 2.6 * eff.scale;
+                if (wts.project(eff.x, wy, eff.z, ptScratch)) {
+                    float cx = ptScratch[0];
+                    float cy = ptScratch[1];
+                    float spread = (0.5f + prog * 0.8f) * 35.0f * eff.scale;
+                    float wingH = (1.0f - prog * 0.3f) * 30.0f * eff.scale;
+                    Render2D.drawLine(vg, cx, cy, cx - spread * 0.5f, cy - wingH, 2.5f, colAlpha);
+                    Render2D.drawLine(vg, cx - spread * 0.5f, cy - wingH, cx - spread, cy - wingH * 0.3f, 2.0f, colAlpha);
+                    Render2D.drawLine(vg, cx, cy, cx + spread * 0.5f, cy - wingH, 2.5f, colAlpha);
+                    Render2D.drawLine(vg, cx + spread * 0.5f, cy - wingH, cx + spread, cy - wingH * 0.3f, 2.0f, colAlpha);
+                    if (glow) {
+                        Render2D.drawCircle(vg, cx, cy - wingH * 0.6f, spread * 0.6f, AetherPalette.withAlpha(eff.color, Math.round(alpha * 45f)));
+                    }
+                }
+            }
+
+            if (doBlood) {
+                int dropCount = 18;
+                for (int i = 0; i < dropCount; i++) {
+                    double a = (i * Math.PI * 2.0 / dropCount);
+                    double dDist = (prog * 2.5 + 0.2) * eff.scale;
+                    double bx = eff.x + Math.cos(a) * dDist;
+                    double bz = eff.z + Math.sin(a) * dDist;
+                    double by = eff.y + 0.5 + Math.sin(prog * 3.14) * 1.2 - prog * 1.8;
+                    if (wts.project(bx, by, bz, ptScratch)) {
+                        Render2D.drawCircle(vg, ptScratch[0], ptScratch[1], 2.8f * (1f - prog * 0.5f), AetherPalette.withAlpha(0xFFDC2626, Math.round(alpha * 240f)));
+                    }
+                }
+            }
+
+            if (doSoul) {
+                double sy = eff.y + prog * 2.2 * eff.scale;
+                if (wts.project(eff.x, sy, eff.z, ptScratch)) {
+                    float sx = ptScratch[0];
+                    float syScr = ptScratch[1];
+                    float sR = 12.0f * eff.scale;
+                    Render2D.drawCircle(vg, sx, syScr, sR, AetherPalette.withAlpha(0xFF67E8F9, Math.round(alpha * 160f)));
+                    Render2D.drawCircle(vg, sx - sR * 0.35f, syScr - sR * 0.1f, sR * 0.22f, AetherPalette.withAlpha(0xFF0F172A, Math.round(alpha * 220f)));
+                    Render2D.drawCircle(vg, sx + sR * 0.35f, syScr - sR * 0.1f, sR * 0.22f, AetherPalette.withAlpha(0xFF0F172A, Math.round(alpha * 220f)));
                 }
             }
         }
@@ -2946,16 +3607,49 @@ public final class VisualRenderer {
         int baseColor = mm.chinaHat.rainbow.isEnabled()
                 ? AetherPalette.rainbow(globalTime * rSpeed)
                 : mm.chinaHat.color.getValue();
+        int tipColor = mm.chinaHat.colorTip.getValue();
 
-        int segments = Math.max(12, Math.min(48, (int) mm.chinaHat.segments.asFloat()));
-        boolean isTwoLayers = mm.chinaHat.layers.isEnabled();
-        int layersCount = isTwoLayers ? 2 : 1;
+        double bob = mm.chinaHat.bobbing.isEnabled() ? Math.sin(globalTime * 8.0) * mm.chinaHat.bobHeight.asFloat() : 0.0;
+        double spinAngle = globalTime * mm.chinaHat.spinSpeed.asFloat() * 2.0;
+
+        int segments = Math.max(12, Math.min(64, (int) mm.chinaHat.segments.asFloat()));
+        int layersCount = mm.chinaHat.layers.isEnabled() ? Math.max(1, Math.min(4, mm.chinaHat.layerCount.getValue().intValue())) : 1;
+        String style = mm.chinaHat.style.getValue();
 
         for (int layer = 0; layer < layersCount; layer++) {
-            float lRadius = layer == 1 ? radius * 0.72f : radius;
-            float lHeight = layer == 1 ? height * 0.78f : height;
-            double baseY = py + eyeH + 0.38 + offY + (layer == 1 ? 0.04 : 0.0);
+            float lRadius = layer > 0 ? radius * (1.0f - layer * 0.18f) : radius;
+            float lHeight = layer > 0 ? height * (1.0f - layer * 0.14f) : height;
+            double baseY = py + eyeH + 0.38 + offY + bob + (layer * 0.08);
             double tipY = baseY + lHeight;
+
+            if ("Шляпа ведьмы".equals(style)) {
+                lHeight *= 1.6f;
+                tipY = baseY + lHeight;
+            }
+
+            if ("Нимб / Ореол".equals(style)) {
+                // Floating halo ring
+                double haloY = baseY + 0.15;
+                float[] hScrX = new float[segments + 1];
+                float[] hScrY = new float[segments + 1];
+                boolean[] hVis = new boolean[segments + 1];
+                for (int i = 0; i <= segments; i++) {
+                    double angle = spinAngle + (2.0 * Math.PI * (i % segments)) / segments;
+                    double bx = px + Math.cos(angle) * (radius * 0.65);
+                    double bz = pz + Math.sin(angle) * (radius * 0.65);
+                    if (wts.project(bx, haloY, bz, ptScratch)) {
+                        hScrX[i] = ptScratch[0]; hScrY[i] = ptScratch[1]; hVis[i] = true;
+                    }
+                }
+                for (int i = 0; i < segments; i++) {
+                    if (hVis[i] && hVis[i + 1]) {
+                        int c = AetherPalette.lerpArgb(baseColor, tipColor, (float) i / segments);
+                        if (mm.chinaHat.glow.isEnabled()) Render2D.drawLine(vg, hScrX[i], hScrY[i], hScrX[i + 1], hScrY[i + 1], 5.0f, AetherPalette.withAlpha(c, 70));
+                        Render2D.drawLine(vg, hScrX[i], hScrY[i], hScrX[i + 1], hScrY[i + 1], 2.2f, AetherPalette.withAlpha(c, 240));
+                    }
+                }
+                continue;
+            }
 
             if (!wts.project(px, tipY, pz, ptScratch)) continue;
             float tipScrX = ptScratch[0];
@@ -2966,7 +3660,7 @@ public final class VisualRenderer {
             boolean[] baseVis = new boolean[segments + 1];
 
             for (int i = 0; i <= segments; i++) {
-                double angle = (2.0 * Math.PI * (i % segments)) / segments;
+                double angle = spinAngle + (2.0 * Math.PI * (i % segments)) / segments;
                 double bx = px + Math.cos(angle) * lRadius;
                 double bz = pz + Math.sin(angle) * lRadius;
                 if (wts.project(bx, baseY, bz, ptScratch2)) {
@@ -2978,7 +3672,7 @@ public final class VisualRenderer {
                 }
             }
 
-            int fillAlpha = (layer == 1 ? 0x77000000 : 0x50000000) | (baseColor & 0x00FFFFFF);
+            int fillAlpha = (layer > 0 ? 0x66000000 : 0x50000000) | (baseColor & 0x00FFFFFF);
             for (int i = 0; i < segments; i++) {
                 if (!baseVis[i] || !baseVis[i + 1]) continue;
                 try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -3020,7 +3714,7 @@ public final class VisualRenderer {
                     if (!started) { NanoVG.nvgMoveTo(vg, baseScrX[i], baseScrY[i]); started = true; }
                     else { NanoVG.nvgLineTo(vg, baseScrX[i], baseScrY[i]); }
                 }
-                NanoVG.nvgStrokeWidth(vg, layer == 1 ? 1.5f : 2.2f);
+                NanoVG.nvgStrokeWidth(vg, layer > 0 ? 1.4f : 2.2f);
                 NanoVG.nvgStrokeColor(vg, cRim);
                 NanoVG.nvgStroke(vg);
             }

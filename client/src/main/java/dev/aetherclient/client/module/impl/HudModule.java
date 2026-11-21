@@ -19,6 +19,8 @@ public final class HudModule extends Module {
     public final BooleanSetting fpsPing = addSetting(new BooleanSetting("fps_ping", "График FPS/пинг", false).withEn("FPS & Ping Graph"));
     public final BooleanSetting inventory = addSetting(new BooleanSetting("inventory", "Инвентарь", false).withEn("Inventory"));
     public final BooleanSetting armorPro = addSetting(new BooleanSetting("armor_pro", "Броня Pro", false).withEn("Armor Pro"));
+    public final BooleanSetting cooldowns = addSetting(new BooleanSetting("cooldowns", "Кулдауны", true).withEn("Cooldowns"));
+    public final BooleanSetting hotkeys = addSetting(new BooleanSetting("hotkeys", "Бинды", true).withEn("Keybinds"));
     public final BooleanSetting blurHud = addSetting(new BooleanSetting("hud_blur", "Размытие виджетов", true).withEn("Widget Blur"));
     public final NumberSetting glassOpacity = addSetting(new NumberSetting("hud_opacity", "Плотность стекла", 0.64, 0.25, 0.92, 0.02).withEn("Glass Opacity"));
     public final NumberSetting scaleWatermark = addSetting(new NumberSetting("scale_watermark", "Масштаб: Знак", 1.0, 0.5, 3.0, 0.1).withEn("Scale: Watermark"));
@@ -35,6 +37,8 @@ public final class HudModule extends Module {
     public final NumberSetting scaleFpsPing = addSetting(new NumberSetting("scale_fps_ping", "Масштаб: FPS/пинг", 1.0, 0.5, 3.0, 0.1).withEn("Scale: FPS/Ping"));
     public final NumberSetting scaleInventory = addSetting(new NumberSetting("scale_inventory", "Масштаб: Инвентарь", 1.0, 0.5, 3.0, 0.1).withEn("Scale: Inventory"));
     public final NumberSetting scaleArmorPro = addSetting(new NumberSetting("scale_armor_pro", "Масштаб: Броня Pro", 1.0, 0.5, 3.0, 0.1).withEn("Scale: Armor Pro"));
+    public final NumberSetting scaleCooldowns = addSetting(new NumberSetting("scale_cooldowns", "Масштаб: Кулдауны", 1.0, 0.5, 3.0, 0.1).withEn("Scale: Cooldowns"));
+    public final NumberSetting scaleHotkeys = addSetting(new NumberSetting("scale_hotkeys", "Масштаб: Бинды", 1.0, 0.5, 3.0, 0.1).withEn("Scale: Hotkeys"));
     public final NumberSetting hudScale = addSetting(new NumberSetting("hud_scale", "Масштаб HUD", 1.0, 0.65, 1.80, 0.05).withEn("Global HUD Scale"));
 
     public HudModule() {

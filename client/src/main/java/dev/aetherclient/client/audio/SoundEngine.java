@@ -285,6 +285,19 @@ public final class SoundEngine {
         }
     }
 
+    public void playKillSound(MinecraftClient mc, String soundType, float volume) {
+        if (mc == null || mc.getSoundManager() == null || volume <= 0.01f || "Без звука".equals(soundType)) return;
+        net.minecraft.sound.SoundEvent evt = switch (soundType) {
+            case "Громовой раскат" -> SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER;
+            case "Колокол" -> SoundEvents.BLOCK_BELL_USE;
+            case "Колокольный перезвон" -> SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME;
+            case "Взрыв" -> SoundEvents.ENTITY_GENERIC_EXPLODE.value();
+            default -> SoundEvents.ENTITY_PLAYER_LEVELUP;
+        };
+        float vol = Math.min(1.0f, volume);
+        mc.execute(() -> mc.getSoundManager().play(PositionedSoundInstance.ui(evt, 1.0f, vol)));
+    }
+
     private void cleanupAlHandles() {
         try {
             for (int i = 0; i < sources.length; i++) {

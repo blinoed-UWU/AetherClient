@@ -117,6 +117,10 @@ public final class ModuleManager {
     public final dev.aetherclient.client.module.impl.AutoTpAcceptModule autoTpAccept = register(new dev.aetherclient.client.module.impl.AutoTpAcceptModule());
     public final dev.aetherclient.client.module.impl.ItemScrollerModule itemScroller = register(new dev.aetherclient.client.module.impl.ItemScrollerModule());
     public final dev.aetherclient.client.module.impl.UnHookModule unHook = register(new dev.aetherclient.client.module.impl.UnHookModule());
+    public final dev.aetherclient.client.module.impl.WorldParticlesModule worldParticles = register(new dev.aetherclient.client.module.impl.WorldParticlesModule());
+    public final dev.aetherclient.client.module.impl.KillEffectModule killEffect = register(new dev.aetherclient.client.module.impl.KillEffectModule());
+    public final dev.aetherclient.client.module.impl.ShulkerPreviewModule shulkerPreview = register(new dev.aetherclient.client.module.impl.ShulkerPreviewModule());
+    public final dev.aetherclient.client.module.impl.FreeLookModule freeLook = register(new dev.aetherclient.client.module.impl.FreeLookModule());
 
     private <M extends Module> M register(M module) {
         modules.add(module);
